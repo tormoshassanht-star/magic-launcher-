@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <PreferenceCategory app:title="Home screen">
+        <ListPreference
+            app:defaultValue="4"
+            app:entries="@array/cols"
+            app:entryValues="@array/cols"
+            app:key="columns"
+            app:title="Columns"
+            app:useSimpleSummaryProvider="true" />
+        <ListPreference
+            app:defaultValue="6"
+            app:entries="@array/rows"
+            app:entryValues="@array/rows"
+            app:key="rows"
+            app:title="Rows"
+            app:useSimpleSummaryProvider="true" />
+        <SwitchPreferenceCompat
+            app:defaultValue="true"
+            app:key="home_labels"
+            app:title="Show app names" />
+        <SwitchPreferenceCompat
+            app:defaultValue="true"
+            app:key="show_clock"
+            app:title="Show clock and date" />
+        <SwitchPreferenceCompat
+            app:defaultValue="true"
+            app:key="dock_enabled"
+            app:title="Show dock" />
+        <Preference
+            app:key="reset_home"
+            app:summary="Rebuild the default home screen and dock"
+            app:title="Reset home layout" />
+    </PreferenceCategory>
+
+    <PreferenceCategory app:title="Icons">
+        <ListPreference
+            app:defaultValue="rounded"
+            app:entries="@array/shapes"
+            app:entryValues="@array/shape_values"
+            app:key="icon_shape"
+            app:title="Icon shape"
+            app:useSimpleSummaryProvider="true" />
+        <SeekBarPreference
+            android:max="130"
+            app:defaultValue="100"
+            app:key="icon_size"
+            app:min="70"
+            app:showSeekBarValue="true"
+            app:title="Icon size (%)" />
+    </PreferenceCategory>
+
+    <PreferenceCategory app:title="App drawer">
+        <ListPreference
+            app:defaultValue="4"
+            app:entries="@array/cols"
+            app:entryValues="@array/cols"
+            app:key="drawer_columns"
+            app:title="Drawer columns"
+            app:useSimpleSummaryProvider="true" />
+        <ListPreference
+            app:defaultValue="NAME"
+            app:entries="@array/sort_labels"
+            app:entryValues="@array/sort_values"
+            app:key="drawer_sort"
+            app:title="Sort apps by"
+            app:useSimpleSummaryProvider="true" />
+        <ListPreference
+            app:defaultValue="auto"
+            app:entries="@array/themes"
+            app:entryValues="@array/theme_values"
+            app:key="drawer_theme"
+            app:title="Drawer theme"
+            app:useSimpleSummaryProvider="true" />
+        <SwitchPreferenceCompat
+            app:defaultValue="true"
+            app:key="new_badge"
+            app:summary="Shows a red dot on apps installed in the last 48 hours"
+            app:title="Mark newly installed apps" />
+        <Preference
+            app:key="hidden_apps"
+            app:summary="Choose apps to hide from the drawer and search"
+            app:title="Hidden apps" />
+    </PreferenceCategory>
+
+    <PreferenceCategory app:title="Gestures">
+        <SwitchPreferenceCompat
+            app:defaultValue="true"
+            app:key="double_tap_lock"
+            app:title="Double tap to lock screen" />
+        <SwitchPreferenceCompat
+            app:defaultValue="true"
+            app:key="swipe_down_notifications"
+            app:title="Swipe down for notifications" />
+        <Preference
+            app:key="accessibility"
+            app:summary="Lock screen and notification gestures need the accessibility service"
+            app:title="Enable gesture service" />
+    </PreferenceCategory>
+
+    <PreferenceCategory app:title="System">
+        <Preference
+            app:key="default_launcher"
+            app:title="Set as default launcher" />
+        <Preference
+            app:key="wallpaper"
+            app:title="Change wallpaper" />
+        <Preference
+            app:key="about"
+            app:summary="Magic Launcher 1.0"
+            app:title="About" />
+    </PreferenceCategory>
+</PreferenceScreen>
