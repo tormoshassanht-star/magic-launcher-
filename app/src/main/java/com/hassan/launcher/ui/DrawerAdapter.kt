@@ -16,20 +16,22 @@ import com.hassan.launcher.databinding.ItemDrawerAppBinding
 import com.hassan.launcher.databinding.ItemDrawerHeaderBinding
 import com.hassan.launcher.model.AppInfo
 
-class DrawerAdapter(
-    private val onClick: (AppInfo, View) -> Unit,
-    private val onLongClick: (AppInfo, View) -> Unit,
-    private val onSelectionChanged: () -> Unit,
-) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
-
-    var items: List<DrawerItem> = emptyList()
-        private set
+class DrawerState {
     var textColor = Color.BLACK
     var subColor = Color.GRAY
     var showNewBadge = true
     var selectionMode = false
-        private set
     val selected = LinkedHashSet<String>()
+    var onClick: (AppInfo, View) -> Unit = { _, _ -> }
+    var onLongClick: (AppInfo, View) -> Unit = { _, _ -> }
+    var onSelectionChanged: () -> Unit = {}
+}
+
+class DrawerAdapter(private val state: DrawerState, private val rowsPerPage: Int = 0) :
+    RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+
+    var items: List<DrawerItem> = emptyList()
+        private set
 
     private val newWindowMs = 48L * 60 * 60 * 1000
 
@@ -38,23 +40,12 @@ class DrawerAdapter(
         notifyDataSetChanged()
     }
 
-    fun setSelectionMode(on: Boolean) {
-        if (selectionMode == on) return
-        selectionMode = on
-        if (!on) selected.clear()
-        notifyDataSetChanged()
-        onSelectionChanged()
-    }
-
     fun toggle(app: AppInfo) {
-        if (!selected.remove(app.key)) selected.add(app.key)
+        if (!state.selected.remove(app.key)) state.selected.add(app.key)
         val idx = items.indexOfFirst { it is DrawerItem.App && it.app.key == app.key }
-        if (idx >= 0) notifyItemChanged(idx) else notifyDataSetChanged()
-        onSelectionChanged()
+        if (idx >= 0) notifyItemChanged(idx)
+        state.onSelectionChanged()
     }
-
-    fun selectedApps(): List<AppInfo> =
-        items.filterIsInstance<DrawerItem.App>().map { it.app }.filter { it.key in selected }.distinctBy { it.key }
 
     fun firstApp(): AppInfo? = (items.firstOrNull { it is DrawerItem.App } as? DrawerItem.App)?.app
 
@@ -81,6 +72,9 @@ class DrawerAdapter(
             1 -> AppVH(ItemDrawerAppBinding.inflate(inf, parent, false)).also { vh ->
                 val s = IconCache.sizePx
                 vh.b.icon.layoutParams = vh.b.icon.layoutParams.apply { width = s; height = s }
+                if (rowsPerPage > 0 && parent.height > 0) {
+                    vh.b.root.layoutParams = vh.b.root.layoutParams.apply { height = parent.height / rowsPerPage }
+                }
             }
             else -> ActionVH(ItemDrawerActionBinding.inflate(inf, parent, false))
         }
@@ -91,15 +85,15 @@ class DrawerAdapter(
             is DrawerItem.Header -> {
                 val h = holder as HeaderVH
                 h.b.headerText.text = item.title
-                h.b.headerText.setTextColor(subColor)
+                h.b.headerText.setTextColor(state.subColor)
             }
             is DrawerItem.App -> bindApp(holder as AppVH, item)
             is DrawerItem.Action -> {
                 val a = holder as ActionVH
                 a.b.actionText.text = item.title
-                a.b.actionText.setTextColor(textColor)
+                a.b.actionText.setTextColor(state.textColor)
                 a.b.actionIcon.setImageResource(item.icon)
-                a.b.actionIcon.imageTintList = ColorStateList.valueOf(subColor)
+                a.b.actionIcon.imageTintList = ColorStateList.valueOf(state.subColor)
                 a.b.root.setOnClickListener { item.run() }
             }
         }
@@ -110,21 +104,21 @@ class DrawerAdapter(
         val ctx = vh.itemView.context
         vh.b.icon.setImageBitmap(IconCache.get(ctx, app))
         vh.b.label.text = app.label
-        vh.b.label.setTextColor(textColor)
+        vh.b.label.setTextColor(state.textColor)
         vh.b.sub.text = item.sub
         vh.b.sub.isVisible = item.sub != null
-        vh.b.sub.setTextColor(subColor)
-        vh.b.badge.isVisible = showNewBadge && System.currentTimeMillis() - app.installTime < newWindowMs
-        val isSelected = selectionMode && app.key in selected
+        vh.b.sub.setTextColor(state.subColor)
+        vh.b.badge.isVisible = state.showNewBadge && System.currentTimeMillis() - app.installTime < newWindowMs
+        val isSelected = state.selectionMode && app.key in state.selected
         vh.b.check.isVisible = isSelected
         vh.b.check.imageTintList = ColorStateList.valueOf(ContextCompat.getColor(ctx, R.color.accent))
-        vh.b.icon.alpha = if (selectionMode && !isSelected) 0.55f else 1f
+        vh.b.icon.alpha = if (state.selectionMode && !isSelected) 0.55f else 1f
         vh.b.root.setOnClickListener {
-            if (selectionMode) toggle(app) else onClick(app, vh.b.icon)
+            if (state.selectionMode) toggle(app) else state.onClick(app, vh.b.icon)
         }
         vh.b.root.setOnLongClickListener {
             it.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-            if (selectionMode) toggle(app) else onLongClick(app, vh.b.icon)
+            if (state.selectionMode) toggle(app) else state.onLongClick(app, vh.b.icon)
             true
         }
     }

@@ -54,12 +54,20 @@
 
     <PreferenceCategory app:title="App drawer">
         <ListPreference
+            app:defaultValue="paged"
+            app:entries="@array/drawer_styles"
+            app:entryValues="@array/drawer_style_values"
+            app:key="drawer_style"
+            app:title="Layout"
+            app:useSimpleSummaryProvider="true" />
+        <ListPreference
             app:defaultValue="4"
             app:entries="@array/cols"
             app:entryValues="@array/cols"
             app:key="drawer_columns"
-            app:title="Drawer columns"
-            app:useSimpleSummaryProvider="true" />
+            app:summary="Used by the long list. Pages use the home screen grid."
+            app:title="List columns"
+            app:useSimpleSummaryProvider="false" />
         <ListPreference
             app:defaultValue="NAME"
             app:entries="@array/sort_labels"

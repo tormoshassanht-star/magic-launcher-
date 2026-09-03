@@ -86,6 +86,7 @@ class LauncherActivity : AppCompatActivity() {
         private const val REQ_BIND = 71
         private const val REQ_CONFIGURE = 72
         private const val REQ_RECONFIGURE = 73
+        private const val FOLDER_CAPACITY = 20
     }
 
     private lateinit var b: ActivityLauncherBinding
@@ -139,8 +140,9 @@ class LauncherActivity : AppCompatActivity() {
             if (currentDrag == null) openDrawer()
         }
 
-        override fun onSwipeDown() {
-            if (currentDrag == null && prefs.swipeDownNotifications) openNotifications()
+        override fun onSwipeDown(fromRight: Boolean) {
+            if (currentDrag != null || !prefs.swipeDownNotifications) return
+            if (fromRight) openQuickSettings() else openNotifications()
         }
 
         override fun onDoubleTapEmpty() {
@@ -151,7 +153,16 @@ class LauncherActivity : AppCompatActivity() {
             b.root.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
             showHomeOptions()
         }
+
+        override fun onPinchIn() {
+            if (currentDrag == null) openOverview()
+        }
     }
+
+    private val drawerState = DrawerState()
+    private var drawerPages: List<List<DrawerItem>> = emptyList()
+    private var overviewOpen = false
+    private var dragMoved = false
 
     private val roleRequest = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         updateDefaultBanner()
@@ -248,11 +259,14 @@ class LauncherActivity : AppCompatActivity() {
         super.onNewIntent(intent)
         dismissPopup()
         when {
+            overviewOpen -> closeOverview()
             openFolderId != null -> closeFolder()
             behavior.state != BottomSheetBehavior.STATE_HIDDEN -> closeDrawer()
-            else -> b.workspace.setCurrentItem(0, true)
+            else -> b.workspace.setCurrentItem(homePageIndex(), true)
         }
     }
+
+    private fun homePageIndex() = prefs.homePage.coerceIn(0, (pages.size - 1).coerceAtLeast(0))
 
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -267,18 +281,22 @@ class LauncherActivity : AppCompatActivity() {
 
     private fun handleBack() {
         dismissPopup()
+        if (overviewOpen) {
+            closeOverview()
+            return
+        }
         if (openFolderId != null) {
             closeFolder()
             return
         }
         if (behavior.state != BottomSheetBehavior.STATE_HIDDEN) {
             when {
-                drawerAdapter.selectionMode -> drawerAdapter.setSelectionMode(false)
+                drawerState.selectionMode -> setSelectionMode(false)
                 query.isNotEmpty() -> b.searchInput.setText("")
                 else -> closeDrawer()
             }
         } else {
-            b.workspace.setCurrentItem(0, true)
+            b.workspace.setCurrentItem(homePageIndex(), true)
         }
     }
 
@@ -298,7 +316,7 @@ class LauncherActivity : AppCompatActivity() {
     private fun setupHomeChrome() {
         val rootGestures = HomeGestures(this, gestureHost) { true }
         b.home.setOnTouchListener { _, e ->
-            rootGestures.detector.onTouchEvent(e)
+            rootGestures.onTouch(e)
             true
         }
         b.searchBar.setOnClickListener { openDrawer(focusSearch = true) }
@@ -330,6 +348,7 @@ class LauncherActivity : AppCompatActivity() {
     private fun onApps(list: List<AppInfo>) {
         apps = list
         appsByKey = list.associateBy { it.key }
+        widgetPackages = null
         if (list.isEmpty()) return
         if (!prefs.hasLayout) {
             if (LayoutPreset.isEmpty(this)) {
@@ -543,7 +562,7 @@ class LauncherActivity : AppCompatActivity() {
         if (pageHeight == 0 || apps.isEmpty()) return
         if (normalizeLayout()) saveLayout()
         b.header.isVisible = prefs.showClock
-        val current = b.workspace.currentItem
+        val current = if (workspaceAdapter == null) homePageIndex() else b.workspace.currentItem
         pageLayouts.clear()
         val wa = WorkspaceAdapter()
         workspaceAdapter = wa
@@ -712,9 +731,22 @@ class LauncherActivity : AppCompatActivity() {
 
     // ---------------------------------------------------------------- widgets
 
-    private fun pickWidget() {
+    private var widgetPackages: Set<String>? = null
+
+    private fun hasWidgets(pkg: String): Boolean {
+        val set = widgetPackages ?: try {
+            awm.installedProviders
+                .filter { (it.widgetCategory and AppWidgetProviderInfo.WIDGET_CATEGORY_HOME_SCREEN) != 0 }
+                .map { it.provider.packageName }.toSet()
+        } catch (e: Exception) {
+            emptySet()
+        }.also { widgetPackages = it }
+        return pkg in set
+    }
+
+    private fun pickWidget(packageFilter: String? = null) {
         if (pageWidth == 0) return
-        WidgetPicker.show(this, cellWpx(), cellHpx()) { addWidget(it) }
+        WidgetPicker.show(this, cellWpx(), cellHpx(), packageFilter) { addWidget(it) }
     }
 
     private fun addWidget(info: AppWidgetProviderInfo) {
@@ -933,14 +965,16 @@ class LauncherActivity : AppCompatActivity() {
 
     private fun trackDragMove(v: View, x: Float, y: Float): Boolean {
         if (dragMoveView !== v) {
+            if (dragMoveView != null) dragMoved = true
             dragMoveView = v
             dragMoveX = x
             dragMoveY = y
-            return false
+            return dragMoved
         }
-        val moved = abs(x - dragMoveX) > dp(28) || abs(y - dragMoveY) > dp(28)
-        if (moved) dismissPopup()
-        return moved
+        val moved = abs(x - dragMoveX) > dp(24) || abs(y - dragMoveY) > dp(24)
+        if (moved) dragMoved = true
+        if (dragMoved) dismissPopup()
+        return dragMoved
     }
 
     private fun startDrag(item: HomeItem, source: DragSource, shadowView: View, ghost: View, spanX: Int, spanY: Int) {
@@ -955,6 +989,7 @@ class LauncherActivity : AppCompatActivity() {
         if (!started) return
         currentDrag = state
         dragMoveView = null
+        dragMoved = false
         drawerClosedForDrag = false
         ghost.alpha = 0.3f
         if (source is DragSource.Folder) closeFolder()
@@ -1095,6 +1130,7 @@ class LauncherActivity : AppCompatActivity() {
 
     private fun dropOnPage(vh: WorkspaceAdapter.PageVH, x: Float, y: Float): Boolean {
         val drag = currentDrag ?: return false
+        if (!dragMoved) return false
         val page = vh.pageIndex
         val cells = pages.getOrNull(page) ?: return false
         val layout = vh.layout
@@ -1116,6 +1152,7 @@ class LauncherActivity : AppCompatActivity() {
                     return true
                 }
                 is HomeItem.Folder -> {
+                    if (!folderHasRoom(target.id)) return false
                     removeFromSource(drag)
                     folders[target.id]?.apps?.add(dragged.key)
                     drag.dropped = true
@@ -1163,8 +1200,18 @@ class LauncherActivity : AppCompatActivity() {
         }
     }
 
+    private fun folderHasRoom(id: String): Boolean {
+        val n = folders[id]?.apps?.size ?: 0
+        if (n >= FOLDER_CAPACITY) {
+            toast("A folder holds up to $FOLDER_CAPACITY apps")
+            return false
+        }
+        return true
+    }
+
     private fun dropOnDock(adapter: HomeItemAdapter, x: Float, y: Float): Boolean {
         val drag = currentDrag ?: return false
+        if (!dragMoved) return false
         val dragged = drag.item
         if (dragged is HomeItem.Widget) return false
         dismissPopup()
@@ -1185,6 +1232,7 @@ class LauncherActivity : AppCompatActivity() {
                     return true
                 }
                 is HomeItem.Folder -> {
+                    if (!folderHasRoom(target.id)) return false
                     removeFromSource(drag)
                     folders[target.id]?.apps?.add(dragged.key)
                     drag.dropped = true
@@ -1242,6 +1290,10 @@ class LauncherActivity : AppCompatActivity() {
         openFolderId = id
         b.folderName.setText(f.name)
         val items = f.apps.mapNotNull { appsByKey[it] }.map { HomeItem.App(it) as HomeItem }.toMutableList()
+        val rowsNeeded = ceil(items.size / 4f).toInt().coerceAtLeast(1)
+        b.folderGrid.layoutParams = b.folderGrid.layoutParams.apply {
+            height = minOf(rowsNeeded * dp(100), (resources.displayMetrics.heightPixels * 0.62f).toInt())
+        }
         b.folderGrid.adapter = HomeItemAdapter(items, dp(100), true, ::onItemClick) { item, view ->
             showFolderAppPopup(item, view, id)
             startDrag(item, DragSource.Folder(id), view, (view.parent as? View) ?: view, 1, 1)
@@ -1300,7 +1352,13 @@ class LauncherActivity : AppCompatActivity() {
             }
         })
 
-        drawerAdapter = DrawerAdapter(::launch, ::showDrawerAppPopup) { updateSelectionBar() }
+        drawerState.onClick = ::launch
+        drawerState.onLongClick = ::showDrawerAppPopup
+        drawerState.onSelectionChanged = { updateSelectionBar() }
+        drawerAdapter = DrawerAdapter(drawerState)
+        b.drawerPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
+            override fun onPageSelected(position: Int) = updateDrawerDots(position)
+        })
         val lm = GridLayoutManager(this, prefs.drawerColumns)
         lm.spanSizeLookup = object : GridLayoutManager.SpanSizeLookup() {
             override fun getSpanSize(position: Int) = if (drawerAdapter.isApp(position)) 1 else lm.spanCount
@@ -1316,7 +1374,7 @@ class LauncherActivity : AppCompatActivity() {
             b.drawerList.scrollToPosition(0)
         }
         b.searchInput.setOnEditorActionListener { _, _, _ ->
-            val first = drawerAdapter.firstApp()
+            val first = drawerAdapter.firstApp() ?: drawerPages.firstOrNull()?.firstOrNull()?.let { (it as? DrawerItem.App)?.app }
             when {
                 first != null -> launch(first, b.searchInput)
                 query.isNotBlank() -> webSearch(query)
@@ -1327,25 +1385,25 @@ class LauncherActivity : AppCompatActivity() {
         b.sortChip.setOnClickListener { showSortMenu() }
         b.moreButton.setOnClickListener { showDrawerMenu() }
 
-        b.selCancel.setOnClickListener { drawerAdapter.setSelectionMode(false) }
+        b.selCancel.setOnClickListener { setSelectionMode(false) }
         b.selHide.setOnClickListener {
-            val sel = drawerAdapter.selectedApps()
+            val sel = selectedApps()
             if (sel.isEmpty()) return@setOnClickListener
             prefs.hidden = prefs.hidden + sel.map { it.key }
-            drawerAdapter.setSelectionMode(false)
+            setSelectionMode(false)
             refreshDrawer()
             toast("${sel.size} hidden. Manage them in Launcher settings › Hidden apps")
         }
         b.selAddHome.setOnClickListener {
-            val sel = drawerAdapter.selectedApps()
+            val sel = selectedApps()
             if (sel.isEmpty()) return@setOnClickListener
             var added = 0
             sel.forEach { if (addToHome(it, quiet = true)) added++ }
-            drawerAdapter.setSelectionMode(false)
+            setSelectionMode(false)
             toast("$added added to Home")
         }
         b.selUninstall.setOnClickListener {
-            val sel = drawerAdapter.selectedApps().filter { !it.isSystem }
+            val sel = selectedApps().filter { !it.isSystem }
             if (sel.isEmpty()) {
                 toast("System apps can't be uninstalled")
                 return@setOnClickListener
@@ -1356,7 +1414,7 @@ class LauncherActivity : AppCompatActivity() {
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Uninstall") { _, _ ->
                     sel.forEach { uninstall(it) }
-                    drawerAdapter.setSelectionMode(false)
+                    setSelectionMode(false)
                 }
                 .show()
         }
@@ -1434,10 +1492,77 @@ class LauncherActivity : AppCompatActivity() {
         b.sortChip.compoundDrawableTintList = ColorStateList.valueOf(text)
         b.appCount.setTextColor(sub)
         for (i in 0 until b.letterIndex.childCount) (b.letterIndex.getChildAt(i) as TextView).setTextColor(sub)
-        drawerAdapter.textColor = text
-        drawerAdapter.subColor = sub
-        drawerAdapter.notifyDataSetChanged()
+        drawerState.textColor = text
+        drawerState.subColor = sub
+        refreshDrawerViews()
+        updateDrawerDots(b.drawerPager.currentItem)
         updateStatusBarIcons(behavior.state == BottomSheetBehavior.STATE_EXPANDED)
+    }
+
+    private fun refreshDrawerViews() {
+        drawerAdapter.notifyDataSetChanged()
+        b.drawerPager.adapter?.notifyDataSetChanged()
+    }
+
+    private fun setSelectionMode(on: Boolean) {
+        if (drawerState.selectionMode == on) return
+        drawerState.selectionMode = on
+        if (!on) drawerState.selected.clear()
+        refreshDrawerViews()
+        updateSelectionBar()
+    }
+
+    private fun toggleSelected(app: AppInfo) {
+        if (!drawerState.selected.remove(app.key)) drawerState.selected.add(app.key)
+        refreshDrawerViews()
+        updateSelectionBar()
+    }
+
+    private fun selectedApps(): List<AppInfo> = apps.filter { it.key in drawerState.selected }
+
+    private inner class DrawerPagerAdapter : RecyclerView.Adapter<DrawerPagerAdapter.VH>() {
+        inner class VH(val rv: RecyclerView) : RecyclerView.ViewHolder(rv)
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
+            val rv = RecyclerView(parent.context).apply {
+                layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+                overScrollMode = View.OVER_SCROLL_NEVER
+                clipToPadding = false
+                setPadding(dp(8), dp(4), dp(8), 0)
+                layoutManager = GridLayoutManager(context, prefs.columns)
+                itemAnimator = null
+            }
+            return VH(rv)
+        }
+
+        override fun onBindViewHolder(holder: VH, position: Int) {
+            val adapter = DrawerAdapter(drawerState, prefs.rows)
+            adapter.submit(drawerPages[position])
+            holder.rv.adapter = adapter
+        }
+
+        override fun getItemCount() = drawerPages.size
+    }
+
+    private fun updateDrawerDots(current: Int) {
+        b.drawerDots.removeAllViews()
+        if (drawerPages.size <= 1) return
+        val on = drawerState.textColor
+        val off = drawerState.subColor
+        for (i in drawerPages.indices) {
+            val dot = View(this).apply {
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(if (i == current) on else off)
+                    alpha = if (i == current) 255 else 110
+                }
+            }
+            val size = if (i == current) dp(7) else dp(5)
+            b.drawerDots.addView(dot, LinearLayout.LayoutParams(size, size).apply {
+                marginStart = dp(4)
+                marginEnd = dp(4)
+            })
+        }
     }
 
     private fun updateStatusBarIcons(drawerOpen: Boolean) {
@@ -1450,29 +1575,45 @@ class LauncherActivity : AppCompatActivity() {
 
     private fun refreshDrawer() {
         val items = DrawerListBuilder.build(apps, sortMode, query, prefs, ::webSearch, ::storeSearch)
-        drawerAdapter.showNewBadge = prefs.newBadge
-        drawerAdapter.submit(items)
+        drawerState.showNewBadge = prefs.newBadge
+        val paged = prefs.drawerStyle == "paged" && query.isEmpty()
+        b.drawerList.isVisible = !paged
+        b.drawerPager.isVisible = paged
+        b.drawerDots.isVisible = paged
+        if (paged) {
+            val perPage = prefs.columns * prefs.rows
+            drawerPages = items.filterIsInstance<DrawerItem.App>().chunked(perPage)
+            val current = b.drawerPager.currentItem
+            b.drawerPager.adapter = DrawerPagerAdapter()
+            b.drawerPager.setCurrentItem(current.coerceIn(0, (drawerPages.size - 1).coerceAtLeast(0)), false)
+            updateDrawerDots(b.drawerPager.currentItem)
+            drawerAdapter.submit(emptyList())
+        } else {
+            drawerPages = emptyList()
+            drawerAdapter.submit(items)
+        }
         b.sortChip.text = sortMode.label
         val hidden = prefs.hidden
         b.appCount.text = "${apps.count { it.key !in hidden }} apps"
-        val showIndex = sortMode == SortMode.NAME && query.isEmpty()
+        val showIndex = !paged && sortMode == SortMode.NAME && query.isEmpty()
         b.letterIndex.isVisible = showIndex
         b.drawerList.updatePadding(right = if (showIndex) dp(22) else dp(8))
     }
 
     private fun updateSelectionBar() {
-        val on = drawerAdapter.selectionMode
+        val on = drawerState.selectionMode
         b.selectionBar.isVisible = on
         b.toolbarRow.isVisible = !on
-        b.selectionCount.text = "${drawerAdapter.selected.size} selected"
+        b.selectionCount.text = "${drawerState.selected.size} selected"
     }
 
     private fun resetDrawer() {
         if (b.searchInput.text.isNotEmpty()) b.searchInput.setText("")
         b.searchInput.clearFocus()
         hideKeyboard()
-        drawerAdapter.setSelectionMode(false)
+        setSelectionMode(false)
         b.drawerList.scrollToPosition(0)
+        if (drawerPages.isNotEmpty()) b.drawerPager.setCurrentItem(0, false)
     }
 
     private fun openDrawer(focusSearch: Boolean = false) {
@@ -1523,7 +1664,7 @@ class LauncherActivity : AppCompatActivity() {
         pm.menu.add(0, 3, 3, "Launcher settings")
         pm.setOnMenuItemClickListener {
             when (it.itemId) {
-                0 -> drawerAdapter.setSelectionMode(true)
+                0 -> setSelectionMode(true)
                 1 -> shareAppList()
                 2 -> startActivity(Intent(this, HiddenAppsActivity::class.java))
                 3 -> startActivity(Intent(this, SettingsActivity::class.java))
@@ -1534,7 +1675,7 @@ class LauncherActivity : AppCompatActivity() {
     }
 
     private fun shareAppList() {
-        val rows = drawerAdapter.items.filterIsInstance<DrawerItem.App>()
+        val rows = DrawerListBuilder.build(apps, sortMode, "", prefs, {}, {}).filterIsInstance<DrawerItem.App>()
         val text = rows.joinToString("\n") { row ->
             val extra = row.sub?.let { " ($it)" } ?: ""
             "${row.app.label} — ${row.app.packageName}$extra"
@@ -1565,14 +1706,18 @@ class LauncherActivity : AppCompatActivity() {
             toast("${app.label} hidden")
         }
         entries += PopupEntry("Select apps", R.drawable.ic_select) {
-            drawerAdapter.setSelectionMode(true)
-            drawerAdapter.toggle(app)
+            setSelectionMode(true)
+            toggleSelected(app)
+        }
+        if (hasWidgets(app.packageName)) entries += PopupEntry("Widgets", R.drawable.ic_apps) {
+            closeDrawer()
+            pickWidget(app.packageName)
         }
         entries += PopupEntry("App info", R.drawable.ic_info) { appInfo(app) }
         if (!app.isSystem) entries += PopupEntry("Uninstall", R.drawable.ic_delete, destructive = true) { uninstall(app) }
         dismissPopup()
         popup = AppPopup.show(anchor, app.label, entries)
-        if (!drawerAdapter.selectionMode) {
+        if (!drawerState.selectionMode) {
             startDrag(HomeItem.App(app), DragSource.Drawer, anchor, (anchor.parent as? View) ?: anchor, 1, 1)
         }
     }
@@ -1636,6 +1781,7 @@ class LauncherActivity : AppCompatActivity() {
                         rebuildDock()
                     }
                 }
+                if (hasWidgets(item.app.packageName)) entries += PopupEntry("Widgets", R.drawable.ic_apps) { pickWidget(item.app.packageName) }
                 entries += PopupEntry("App info", R.drawable.ic_info) { appInfo(item.app) }
                 if (!item.app.isSystem) entries += PopupEntry("Uninstall", R.drawable.ic_delete, destructive = true) { uninstall(item.app) }
             }
@@ -1654,6 +1800,10 @@ class LauncherActivity : AppCompatActivity() {
             saveLayout()
             addToHome(app, quiet = true)
             refreshHome()
+        }
+        if (hasWidgets(app.packageName)) entries += PopupEntry("Widgets", R.drawable.ic_apps) {
+            closeFolder()
+            pickWidget(app.packageName)
         }
         entries += PopupEntry("App info", R.drawable.ic_info) { appInfo(app) }
         if (!app.isSystem) entries += PopupEntry("Uninstall", R.drawable.ic_delete, destructive = true) { uninstall(app) }
@@ -1700,7 +1850,7 @@ class LauncherActivity : AppCompatActivity() {
     private fun showHomeOptions() {
         dismissPopup()
         val current = b.workspace.currentItem
-        val items = mutableListOf("Add widget", "Change wallpaper", "Launcher settings", "All apps", "Add page", "Put all apps on Home")
+        val items = mutableListOf("Add widget", "Manage pages", "Change wallpaper", "Launcher settings", "All apps", "Add page", "Put all apps on Home")
         if (!LayoutPreset.isEmpty(this)) items += "Apply my Honor layout"
         if (pages.size > 1) items += "Remove this page"
         if (!isDefaultLauncher()) items += "Set as default launcher"
@@ -1709,6 +1859,7 @@ class LauncherActivity : AppCompatActivity() {
             .setItems(items.toTypedArray()) { _, i ->
                 when (items[i]) {
                     "Add widget" -> pickWidget()
+                    "Manage pages" -> openOverview()
                     "Change wallpaper" -> startActivity(Intent.createChooser(Intent(Intent.ACTION_SET_WALLPAPER), "Choose wallpaper"))
                     "Launcher settings" -> startActivity(Intent(this, SettingsActivity::class.java))
                     "All apps" -> openDrawer()
@@ -1890,6 +2041,176 @@ class LauncherActivity : AppCompatActivity() {
             Class.forName("android.app.StatusBarManager").getMethod("expandNotificationsPanel").invoke(sb)
         } catch (e: Exception) {
             promptAccessibility("Swipe down for notifications")
+        }
+    }
+
+    private fun openQuickSettings() {
+        val svc = GestureAccessibilityService.instance
+        if (svc != null && svc.openQuickSettings()) return
+        try {
+            val sb = getSystemService("statusbar")
+            Class.forName("android.app.StatusBarManager").getMethod("expandSettingsPanel").invoke(sb)
+        } catch (e: Exception) {
+            promptAccessibility("Swipe down for the control panel")
+        }
+    }
+
+    // ---------------------------------------------------------------- page overview
+
+    private fun openOverview() {
+        if (overviewOpen || pages.isEmpty()) return
+        dismissPopup()
+        if (openFolderId != null) closeFolder()
+        overviewOpen = true
+        b.workspace.animate().scaleX(0.8f).scaleY(0.8f).alpha(0f).setDuration(220).start()
+        b.overviewList.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(this, RecyclerView.HORIZONTAL, false)
+        val adapter = OverviewAdapter()
+        b.overviewList.adapter = adapter
+        overviewTouchHelper.attachToRecyclerView(b.overviewList)
+        b.overviewList.scrollToPosition(b.workspace.currentItem)
+        b.overviewOverlay.alpha = 0f
+        b.overviewOverlay.isVisible = true
+        b.overviewOverlay.animate().alpha(1f).setDuration(220).start()
+        b.overviewOverlay.setOnClickListener { closeOverview() }
+    }
+
+    private fun closeOverview(goTo: Int? = null) {
+        if (!overviewOpen) return
+        overviewOpen = false
+        overviewTouchHelper.attachToRecyclerView(null)
+        b.overviewOverlay.animate().alpha(0f).setDuration(180).withEndAction { b.overviewOverlay.isVisible = false }.start()
+        if (goTo != null && goTo in pages.indices) b.workspace.setCurrentItem(goTo, false)
+        b.workspace.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(220).start()
+    }
+
+    private fun refreshOverview() {
+        handler.postDelayed({ if (overviewOpen) b.overviewList.adapter?.notifyDataSetChanged() }, 120)
+    }
+
+    private fun renderPage(index: Int): android.graphics.Bitmap? {
+        val layout = pageLayouts[index] ?: return null
+        if (layout.width == 0 || layout.height == 0) return null
+        val scale = 0.4f
+        val bmp = android.graphics.Bitmap.createBitmap(
+            (layout.width * scale).toInt().coerceAtLeast(1), (layout.height * scale).toInt().coerceAtLeast(1),
+            android.graphics.Bitmap.Config.ARGB_8888,
+        )
+        val c = android.graphics.Canvas(bmp)
+        c.scale(scale, scale)
+        layout.draw(c)
+        return bmp
+    }
+
+    private val overviewTouchHelper = androidx.recyclerview.widget.ItemTouchHelper(object : androidx.recyclerview.widget.ItemTouchHelper.Callback() {
+        override fun getMovementFlags(rv: RecyclerView, vh: RecyclerView.ViewHolder): Int {
+            if (vh.bindingAdapterPosition >= pages.size) return 0
+            return makeMovementFlags(androidx.recyclerview.widget.ItemTouchHelper.LEFT or androidx.recyclerview.widget.ItemTouchHelper.RIGHT, 0)
+        }
+
+        override fun canDropOver(rv: RecyclerView, current: RecyclerView.ViewHolder, target: RecyclerView.ViewHolder) =
+            target.bindingAdapterPosition < pages.size
+
+        override fun onMove(rv: RecyclerView, from: RecyclerView.ViewHolder, to: RecyclerView.ViewHolder): Boolean {
+            val f = from.bindingAdapterPosition
+            val t = to.bindingAdapterPosition
+            if (f !in pages.indices || t !in pages.indices) return false
+            val home = homePageIndex()
+            pages.add(t, pages.removeAt(f))
+            prefs.homePage = when (home) {
+                f -> t
+                in (minOf(f, t)..maxOf(f, t)) -> if (f < t) home - 1 else home + 1
+                else -> home
+            }
+            rv.adapter?.notifyItemMoved(f, t)
+            return true
+        }
+
+        override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) = Unit
+
+        override fun clearView(rv: RecyclerView, vh: RecyclerView.ViewHolder) {
+            super.clearView(rv, vh)
+            saveLayout()
+            refreshHome()
+            refreshOverview()
+        }
+    })
+
+    private inner class OverviewAdapter : RecyclerView.Adapter<OverviewAdapter.VH>() {
+        inner class VH(val b: com.hassan.launcher.databinding.ItemOverviewPageBinding) : RecyclerView.ViewHolder(b.root)
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
+            val vb = com.hassan.launcher.databinding.ItemOverviewPageBinding.inflate(layoutInflater, parent, false)
+            val w = (resources.displayMetrics.widthPixels * 0.42f).toInt()
+            val h = if (pageWidth > 0) (w * pageHeight / pageWidth.toFloat()).toInt() else w * 2
+            vb.thumb.layoutParams = vb.thumb.layoutParams.apply { width = w; height = h }
+            return VH(vb)
+        }
+
+        override fun getItemCount() = pages.size + 1
+
+        override fun onBindViewHolder(holder: VH, position: Int) {
+            val vb = holder.b
+            val isAdd = position >= pages.size
+            vb.buttons.isVisible = !isAdd
+            vb.thumb.background = GradientDrawable().apply {
+                cornerRadius = dp(18).toFloat()
+                setColor(if (isAdd) 0x33FFFFFF else 0x22FFFFFF)
+                setStroke(dp(2), if (!isAdd && position == b.workspace.currentItem) 0xFFFFFFFF.toInt() else 0x55FFFFFF)
+            }
+            if (isAdd) {
+                vb.thumb.setImageResource(R.drawable.ic_add)
+                vb.thumb.scaleType = android.widget.ImageView.ScaleType.CENTER
+                vb.thumb.imageTintList = ColorStateList.valueOf(0xFFFFFFFF.toInt())
+                vb.pageLabel.text = "Add page"
+                vb.thumb.setOnClickListener {
+                    pages.add(mutableListOf())
+                    saveLayout()
+                    workspaceAdapter?.notifyItemInserted(pages.size - 1)
+                    b.workspace.offscreenPageLimit = max(1, pages.size)
+                    updateIndicator(b.workspace.currentItem)
+                    notifyItemInserted(pages.size - 1)
+                    refreshOverview()
+                }
+                vb.thumb.setOnLongClickListener(null)
+                return
+            }
+            vb.thumb.imageTintList = null
+            vb.thumb.scaleType = android.widget.ImageView.ScaleType.FIT_XY
+            vb.thumb.setImageBitmap(renderPage(position))
+            val isHome = position == homePageIndex()
+            vb.pageLabel.text = if (isHome) "Page ${position + 1} · Home" else "Page ${position + 1}"
+            vb.homeBtn.imageTintList = ColorStateList.valueOf(if (isHome) ContextCompat.getColor(this@LauncherActivity, R.color.accent) else 0xFFFFFFFF.toInt())
+            vb.homeBtn.setOnClickListener {
+                prefs.homePage = position
+                notifyDataSetChanged()
+            }
+            vb.deleteBtn.isVisible = pages.size > 1
+            vb.deleteBtn.setOnClickListener {
+                val doRemove = {
+                    val removed = pages.removeAt(position)
+                    discardWidgetsIn(listOf(removed))
+                    removed.filter { HomeItem.isFolderKey(it.key) }.forEach { folders.remove(HomeItem.folderId(it.key)) }
+                    if (prefs.homePage >= pages.size) prefs.homePage = pages.size - 1
+                    saveLayout()
+                    rebuildHome()
+                    notifyDataSetChanged()
+                    refreshOverview()
+                }
+                if (pages[position].isEmpty()) doRemove() else {
+                    MaterialAlertDialogBuilder(this@LauncherActivity)
+                        .setTitle("Remove page ${position + 1}?")
+                        .setMessage("${pages[position].size} items on this page will be removed from Home. The apps stay installed.")
+                        .setNegativeButton("Cancel", null)
+                        .setPositiveButton("Remove") { _, _ -> doRemove() }
+                        .show()
+                }
+            }
+            vb.thumb.setOnClickListener { closeOverview(goTo = position) }
+            vb.thumb.setOnLongClickListener {
+                it.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                overviewTouchHelper.startDrag(holder)
+                true
+            }
         }
     }
 

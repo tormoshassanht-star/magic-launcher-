@@ -4,7 +4,9 @@ import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProviderInfo
 import android.content.Context
 import android.view.LayoutInflater
+import android.view.View
 import android.view.ViewGroup
+import androidx.core.widget.doAfterTextChanged
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomsheet.BottomSheetDialog
@@ -17,13 +19,20 @@ object WidgetPicker {
 
     private sealed class Row {
         class Header(val label: String, val pkg: String) : Row()
-        class Widget(val info: AppWidgetProviderInfo) : Row()
+        class Widget(val info: AppWidgetProviderInfo, val appLabel: String) : Row()
     }
 
-    fun show(context: Context, cellWpx: Float, cellHpx: Float, onPick: (AppWidgetProviderInfo) -> Unit) {
+    fun show(
+        context: Context,
+        cellWpx: Float,
+        cellHpx: Float,
+        packageFilter: String? = null,
+        onPick: (AppWidgetProviderInfo) -> Unit,
+    ) {
         val pm = context.packageManager
         val providers = AppWidgetManager.getInstance(context).installedProviders
             .filter { (it.widgetCategory and AppWidgetProviderInfo.WIDGET_CATEGORY_HOME_SCREEN) != 0 }
+            .filter { packageFilter == null || it.provider.packageName == packageFilter }
         val groups = providers.groupBy { it.provider.packageName }
             .map { (pkg, list) ->
                 val label = try {
@@ -34,16 +43,27 @@ object WidgetPicker {
                 Triple(label, pkg, list.sortedBy { it.loadLabel(pm) })
             }
             .sortedBy { it.first.lowercase() }
-        val rows = ArrayList<Row>()
-        for ((label, pkg, list) in groups) {
-            rows += Row.Header(label, pkg)
-            list.mapTo(rows) { Row.Widget(it) }
+
+        fun rowsFor(query: String): List<Row> {
+            val q = query.trim().lowercase()
+            val rows = ArrayList<Row>()
+            for ((label, pkg, list) in groups) {
+                val matching = if (q.isEmpty()) list else list.filter {
+                    label.lowercase().contains(q) || it.loadLabel(pm).lowercase().contains(q)
+                }
+                if (matching.isEmpty()) continue
+                rows += Row.Header(label, pkg)
+                matching.mapTo(rows) { Row.Widget(it, label) }
+            }
+            return rows
         }
 
+        var rows = rowsFor("")
         val dialog = BottomSheetDialog(context)
         val b = SheetWidgetsBinding.inflate(LayoutInflater.from(context))
+        if (packageFilter != null) b.sheetTitle.text = groups.firstOrNull()?.first?.let { "$it widgets" } ?: "Widgets"
         b.widgetList.layoutManager = LinearLayoutManager(context)
-        b.widgetList.adapter = object : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+        val adapter = object : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
             override fun getItemCount() = rows.size
             override fun getItemViewType(position: Int) = if (rows[position] is Row.Header) 0 else 1
 
@@ -78,9 +98,15 @@ object WidgetPicker {
                 }
             }
         }
-        b.emptyText.visibility = if (rows.isEmpty()) android.view.View.VISIBLE else android.view.View.GONE
+        b.widgetList.adapter = adapter
+        b.emptyText.visibility = if (rows.isEmpty()) View.VISIBLE else View.GONE
+        b.widgetSearch.doAfterTextChanged {
+            rows = rowsFor(it?.toString() ?: "")
+            adapter.notifyDataSetChanged()
+            b.emptyText.visibility = if (rows.isEmpty()) View.VISIBLE else View.GONE
+        }
         dialog.setContentView(b.root)
-        dialog.behavior.peekHeight = context.resources.displayMetrics.heightPixels * 2 / 3
+        dialog.behavior.peekHeight = context.resources.displayMetrics.heightPixels * 3 / 4
         dialog.show()
     }
 

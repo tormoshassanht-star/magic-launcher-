@@ -25,6 +25,11 @@ class Prefs(context: Context) {
     val doubleTapLock get() = sp.getBoolean("double_tap_lock", true)
     val swipeDownNotifications get() = sp.getBoolean("swipe_down_notifications", true)
     val drawerTheme get() = sp.getString("drawer_theme", "auto")!!
+    val drawerStyle get() = sp.getString("drawer_style", "paged")!!
+
+    var homePage: Int
+        get() = sp.getInt("home_page", 0)
+        set(v) = sp.edit().putInt("home_page", v).apply()
 
     var askedDefault: Boolean
         get() = sp.getBoolean("asked_default", false)
@@ -40,7 +45,7 @@ class Prefs(context: Context) {
 
     fun configSignature() = listOf(
         columns, rows, drawerColumns, iconShape, iconSize, showHomeLabels,
-        showClock, dockEnabled, newBadge, drawerTheme,
+        showClock, dockEnabled, newBadge, drawerTheme, drawerStyle,
     ).joinToString("|")
 
     fun recordLaunch(key: String) {

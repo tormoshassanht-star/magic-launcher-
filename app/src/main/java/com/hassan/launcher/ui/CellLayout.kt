@@ -95,12 +95,12 @@ class CellLayout(context: Context) : ViewGroup(context) {
 
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
         if (ev.actionMasked == MotionEvent.ACTION_DOWN) ignoreGesture = childAt(ev.x, ev.y) is WidgetFrame
-        if (!ignoreGesture) gestures?.detector?.onTouchEvent(ev)
+        if (!ignoreGesture) gestures?.onTouch(ev)
         return false
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (event.actionMasked != MotionEvent.ACTION_DOWN && !ignoreGesture) gestures?.detector?.onTouchEvent(event)
+        if (event.actionMasked != MotionEvent.ACTION_DOWN && !ignoreGesture) gestures?.onTouch(event)
         return true
     }
 

@@ -10,6 +10,8 @@
     <string-array name="shape_values"><item>rounded</item><item>squircle</item><item>circle</item><item>square</item></string-array>
     <string-array name="sort_labels"><item>Name</item><item>Newest installed</item><item>Oldest installed</item><item>Recently updated</item><item>Most used</item><item>Recently used</item></string-array>
     <string-array name="sort_values"><item>NAME</item><item>INSTALL_NEWEST</item><item>INSTALL_OLDEST</item><item>UPDATED</item><item>MOST_USED</item><item>RECENT</item></string-array>
+    <string-array name="drawer_styles"><item>Pages, swipe sideways (like Honor)</item><item>One long list, scroll down</item></string-array>
+    <string-array name="drawer_style_values"><item>paged</item><item>vertical</item></string-array>
     <string-array name="themes"><item>Follow system</item><item>Light</item><item>Dark</item></string-array>
     <string-array name="theme_values"><item>auto</item><item>light</item><item>dark</item></string-array>
 </resources>

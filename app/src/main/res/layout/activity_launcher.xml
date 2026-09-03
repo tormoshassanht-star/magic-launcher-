@@ -183,6 +183,37 @@
     </FrameLayout>
 
     <FrameLayout
+        android:id="@+id/overviewOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#40000000"
+        android:clickable="true"
+        android:focusable="true"
+        android:visibility="gone">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/overviewList"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:clipToPadding="false"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp" />
+
+        <TextView
+            android:id="@+id/overviewHint"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|center_horizontal"
+            android:layout_marginBottom="48dp"
+            android:shadowColor="#80000000"
+            android:shadowRadius="4"
+            android:text="Tap a page to open it. Hold and drag to reorder."
+            android:textColor="#E6FFFFFF"
+            android:textSize="13sp" />
+    </FrameLayout>
+
+    <FrameLayout
         android:id="@+id/folderOverlay"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
@@ -359,6 +390,12 @@
                     android:paddingEnd="20dp"
                     android:paddingBottom="16dp" />
 
+                <androidx.viewpager2.widget.ViewPager2
+                    android:id="@+id/drawerPager"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:visibility="gone" />
+
                 <LinearLayout
                     android:id="@+id/letterIndex"
                     android:layout_width="26dp"
@@ -381,6 +418,14 @@
                     android:textSize="30sp"
                     android:visibility="gone" />
             </FrameLayout>
+
+            <LinearLayout
+                android:id="@+id/drawerDots"
+                android:layout_width="match_parent"
+                android:layout_height="18dp"
+                android:gravity="center"
+                android:orientation="horizontal"
+                android:visibility="gone" />
 
             <LinearLayout
                 android:id="@+id/selectionBar"
