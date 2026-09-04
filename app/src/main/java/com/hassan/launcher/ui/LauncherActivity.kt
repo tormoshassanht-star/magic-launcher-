@@ -136,7 +136,7 @@ class LauncherActivity : AppCompatActivity() {
 
     private val gestureHost = object : HomeGestures.Host {
         override fun onPullStart(): Boolean {
-            if (currentDrag != null || overviewOpen || openFolderId != null) return false
+            if (currentDrag != null || overviewOpen || openFolderId != null || resizing != null || searchOpen) return false
             dismissPopup()
             pullActive = true
             b.drawer.beginDrag()
@@ -215,6 +215,8 @@ class LauncherActivity : AppCompatActivity() {
         setupHomeChrome()
         setupDragTargets()
         setupFolderOverlay()
+        setupResize()
+        setupSearch()
         b.workspace.doOnLayout {
             pageHeight = it.height
             pageWidth = it.width
@@ -272,6 +274,8 @@ class LauncherActivity : AppCompatActivity() {
         super.onNewIntent(intent)
         dismissPopup()
         when {
+            searchOpen -> closeSearch()
+            resizing != null -> finishResize()
             overviewOpen -> closeOverview()
             openFolderId != null -> closeFolder()
             b.drawer.isShowing -> closeDrawer()
@@ -294,6 +298,14 @@ class LauncherActivity : AppCompatActivity() {
 
     private fun handleBack() {
         dismissPopup()
+        if (searchOpen) {
+            closeSearch()
+            return
+        }
+        if (resizing != null) {
+            finishResize()
+            return
+        }
         if (overviewOpen) {
             closeOverview()
             return
@@ -322,6 +334,7 @@ class LauncherActivity : AppCompatActivity() {
             b.removeZone.updateLayoutParams<ViewGroup.MarginLayoutParams> { topMargin = sb.top + dp(10) }
             b.drawerContent.updatePadding(top = sb.top, bottom = max(sb.bottom, ime.bottom))
             b.folderOverlay.updatePadding(top = sb.top, bottom = max(sb.bottom, ime.bottom))
+            b.searchContent.updatePadding(top = sb.top, bottom = max(sb.bottom, ime.bottom))
             insets
         }
     }
@@ -332,7 +345,12 @@ class LauncherActivity : AppCompatActivity() {
             rootGestures.onTouch(e)
             true
         }
-        b.searchBar.setOnClickListener { openDrawer(focusSearch = true) }
+        b.searchBar.setOnClickListener { openSearch() }
+        b.searchButton.setOnClickListener { openSearch() }
+        b.searchButton.background = GradientDrawable().apply {
+            setColor(0x59000000)
+            cornerRadius = dp(18).toFloat()
+        }
         b.defaultBanner.setOnClickListener { requestDefaultLauncher() }
         b.mic.setOnClickListener {
             try {
@@ -575,6 +593,8 @@ class LauncherActivity : AppCompatActivity() {
         if (pageHeight == 0 || apps.isEmpty()) return
         if (normalizeLayout()) saveLayout()
         b.header.isVisible = prefs.showClock
+        b.searchButton.isVisible = prefs.searchStyle == "button"
+        b.searchBar.isVisible = prefs.searchStyle == "bar"
         val current = if (workspaceAdapter == null) homePageIndex() else b.workspace.currentItem
         pageLayouts.clear()
         val wa = WorkspaceAdapter()
@@ -852,7 +872,7 @@ class LauncherActivity : AppCompatActivity() {
 
     private fun showWidgetPopup(item: HomeItem.Widget, anchor: View, pageIndex: Int) {
         val entries = mutableListOf<PopupEntry>()
-        entries += PopupEntry("Resize", R.drawable.ic_apps) { showResizeDialog(item, pageIndex) }
+        entries += PopupEntry("Resize", R.drawable.ic_apps) { startResize(item, pageIndex) }
         val info = item.info
         if (info != null && info.configure != null && Build.VERSION.SDK_INT >= 28 &&
             (info.widgetFeatures and AppWidgetProviderInfo.WIDGET_FEATURE_RECONFIGURABLE) != 0
@@ -874,55 +894,129 @@ class LauncherActivity : AppCompatActivity() {
         popup = AppPopup.show(anchor, item.label, entries)
     }
 
-    private fun showResizeDialog(item: HomeItem.Widget, pageIndex: Int) {
-        val cells = pages.getOrNull(pageIndex) ?: return
-        val cell = cells.firstOrNull { it.key == item.key } ?: return
+    private class ResizeSession(val page: Int, val cell: HomeCell, val view: View, val layout: CellLayout)
+
+    private var resizing: ResizeSession? = null
+    private var resizeHandle = ResizeFrame.NONE
+    private lateinit var resizeFrame: ResizeFrame
+
+    private fun setupResize() {
+        resizeFrame = ResizeFrame(this)
+        b.resizeOverlay.addView(resizeFrame, 0, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        b.resizeOverlay.setOnTouchListener { _, e ->
+            val s = resizing ?: return@setOnTouchListener false
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    resizeHandle = resizeFrame.handleAt(e.x, e.y)
+                    if (resizeHandle == ResizeFrame.NONE && resizeFrame.rect?.contains(e.x, e.y) != true) finishResize()
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (resizeHandle != ResizeFrame.NONE) applyResize(s, e.x, e.y)
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    resizeHandle = ResizeFrame.NONE
+                    true
+                }
+                else -> true
+            }
+        }
+    }
+
+    private fun layoutOrigin(layout: CellLayout): Pair<Float, Float> {
+        val a = IntArray(2)
+        val o = IntArray(2)
+        layout.getLocationInWindow(a)
+        b.resizeOverlay.getLocationInWindow(o)
+        return (a[0] - o[0]).toFloat() to (a[1] - o[1]).toFloat()
+    }
+
+    private fun updateResizeRect(s: ResizeSession) {
+        val (ox, oy) = layoutOrigin(s.layout)
+        val cw = s.layout.cellW
+        val ch = s.layout.cellH
+        val left = ox + s.layout.paddingLeft + s.cell.col * cw
+        val top = oy + s.layout.paddingTop + s.cell.row * ch
+        val inset = dp(4).toFloat()
+        resizeFrame.rect = android.graphics.RectF(left + inset, top + inset, left + cw * s.cell.spanX - inset, top + ch * s.cell.spanY - inset)
+    }
+
+    private fun startResize(item: HomeItem.Widget, pageIndex: Int) {
+        val layout = pageLayouts[pageIndex] ?: return
+        val cell = pages.getOrNull(pageIndex)?.firstOrNull { it.key == item.key } ?: return
+        val view = (0 until layout.childCount).map { layout.getChildAt(it) }.firstOrNull { (it.tag as? HomeItem)?.key == item.key } ?: return
+        dismissPopup()
+        resizing = ResizeSession(pageIndex, cell, view, layout)
+        b.workspace.isUserInputEnabled = false
+        b.resizeOverlay.alpha = 0f
+        b.resizeOverlay.isVisible = true
+        b.resizeOverlay.animate().alpha(1f).setDuration(150).start()
+        updateResizeRect(resizing!!)
+    }
+
+    private fun applyResize(s: ResizeSession, x: Float, y: Float) {
+        val (ox, oy) = layoutOrigin(s.layout)
+        val lx = x - ox - s.layout.paddingLeft
+        val ly = y - oy - s.layout.paddingTop
+        val cw = s.layout.cellW
+        val ch = s.layout.cellH
         val cols = prefs.columns
         val rows = prefs.rows
-        val occ = occupancy(cells, item.key)
-        val grid = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(16), dp(8), dp(16), dp(8))
-        }
-        var dialog: androidx.appcompat.app.AlertDialog? = null
-        for (r in 0 until rows) {
-            val rowView = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            for (c in 0 until cols) {
-                val sx = c + 1
-                val sy = r + 1
-                val ok = fits(occ, cell.col, cell.row, sx, sy)
-                val selected = sx <= cell.spanX && sy <= cell.spanY
-                val v = View(this).apply {
-                    background = GradientDrawable().apply {
-                        cornerRadius = dp(6).toFloat()
-                        setColor(
-                            when {
-                                selected -> ContextCompat.getColor(this@LauncherActivity, R.color.accent)
-                                ok -> 0x33888888
-                                else -> 0x11888888
-                            },
-                        )
-                    }
-                    isEnabled = ok
-                    if (ok) setOnClickListener {
-                        cell.spanX = sx
-                        cell.spanY = sy
-                        saveLayout()
-                        refreshHome()
-                        dialog?.dismiss()
-                    }
-                }
-                rowView.addView(v, LinearLayout.LayoutParams(dp(36), dp(36)).apply { setMargins(dp(3), dp(3), dp(3), dp(3)) })
+        val c = s.cell
+        var col = c.col
+        var row = c.row
+        var sx = c.spanX
+        var sy = c.spanY
+        when (resizeHandle) {
+            ResizeFrame.RIGHT -> sx = ((lx / cw).roundToInt() - col).coerceIn(1, cols - col)
+            ResizeFrame.BOTTOM -> sy = ((ly / ch).roundToInt() - row).coerceIn(1, rows - row)
+            ResizeFrame.LEFT -> {
+                val right = col + sx
+                col = (lx / cw).roundToInt().coerceIn(0, right - 1)
+                sx = right - col
             }
-            grid.addView(rowView)
+            ResizeFrame.TOP -> {
+                val bottom = row + sy
+                row = (ly / ch).roundToInt().coerceIn(0, bottom - 1)
+                sy = bottom - row
+            }
         }
-        dialog = MaterialAlertDialogBuilder(this)
-            .setTitle("Resize ${item.label}")
-            .setMessage("Tap the bottom-right corner of the size you want. Greyed cells don't fit next to the other items.")
-            .setView(grid)
-            .setNegativeButton("Cancel", null)
-            .show()
+        if (col == c.col && row == c.row && sx == c.spanX && sy == c.spanY) return
+        val occ = occupancy(pages[s.page], c.key)
+        if (!fits(occ, col, row, sx, sy)) return
+        c.col = col
+        c.row = row
+        c.spanX = sx
+        c.spanY = sy
+        (s.view.layoutParams as? CellLayout.LayoutParams)?.let {
+            it.col = col
+            it.row = row
+            it.spanX = sx
+            it.spanY = sy
+        }
+        s.view.requestLayout()
+        s.view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+        updateResizeRect(s)
+    }
+
+    private fun finishResize() {
+        val s = resizing ?: return
+        resizing = null
+        resizeHandle = ResizeFrame.NONE
+        b.workspace.isUserInputEnabled = true
+        b.resizeOverlay.animate().alpha(0f).setDuration(150).withEndAction { b.resizeOverlay.isVisible = false }.start()
+        saveLayout()
+        val density = resources.displayMetrics.density
+        val wdp = (cellWpx() * s.cell.spanX / density).toInt()
+        val hdp = (cellHpx() * s.cell.spanY / density).toInt()
+        ((s.view as? WidgetFrame)?.getChildAt(0) as? android.appwidget.AppWidgetHostView)?.let {
+            try {
+                @Suppress("DEPRECATION")
+                it.updateAppWidgetSize(null, wdp, hdp, wdp, hdp)
+            } catch (e: Exception) {
+            }
+        }
     }
 
     // ---------------------------------------------------------------- drag and drop
@@ -1596,6 +1690,136 @@ class LauncherActivity : AppCompatActivity() {
             }
             val size = if (i == current) dp(7) else dp(5)
             b.drawerDots.addView(tappableDot(dot, size) { b.drawerPager.setCurrentItem(i, true) })
+        }
+    }
+
+    // ---------------------------------------------------------------- universal search
+
+    private var searchOpen = false
+    private var searchJob: kotlinx.coroutines.Job? = null
+    private lateinit var searchAdapter: SearchAdapter
+    private val permissionRequest = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { runSearch() }
+
+    private fun setupSearch() {
+        searchAdapter = SearchAdapter(lifecycleScope, drawerState) { row, view -> onSearchRow(row, view) }
+        b.searchResults.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(this)
+        b.searchResults.adapter = searchAdapter
+        b.searchResults.itemAnimator = null
+        b.globalSearch.doAfterTextChanged {
+            b.globalClear.isVisible = !it.isNullOrEmpty()
+            runSearch()
+        }
+        b.globalSearch.setOnEditorActionListener { _, _, _ ->
+            val q = b.globalSearch.text.toString().trim()
+            val first = searchAdapter.rows.firstOrNull { it is SearchRow.App } as? SearchRow.App
+            when {
+                q.isEmpty() -> Unit
+                first != null && first.app.label.lowercase().startsWith(q.lowercase()) -> launch(first.app, b.globalSearch)
+                else -> webSearch(q)
+            }
+            true
+        }
+        b.globalClear.setOnClickListener { b.globalSearch.setText("") }
+        b.searchOverlay.setOnClickListener { closeSearch() }
+        b.searchContent.setOnClickListener { }
+    }
+
+    private fun openSearch() {
+        if (searchOpen) return
+        dismissPopup()
+        if (openFolderId != null) closeFolder()
+        searchOpen = true
+        applySearchTheme()
+        b.globalSearch.setText("")
+        searchAdapter.submit(UniversalSearch.recent(apps, prefs))
+        b.searchOverlay.alpha = 0f
+        b.searchOverlay.isVisible = true
+        b.searchOverlay.animate().alpha(1f).setDuration(160).start()
+        b.globalSearch.requestFocus()
+        b.globalSearch.postDelayed({
+            getSystemService(InputMethodManager::class.java).showSoftInput(b.globalSearch, InputMethodManager.SHOW_IMPLICIT)
+        }, 120)
+        updateStatusBarIcons(!drawerDark)
+    }
+
+    private fun closeSearch() {
+        if (!searchOpen) return
+        searchOpen = false
+        searchJob?.cancel()
+        hideKeyboard()
+        b.globalSearch.clearFocus()
+        b.searchOverlay.animate().alpha(0f).setDuration(140).withEndAction { b.searchOverlay.isVisible = false }.start()
+        updateStatusBarIcons(b.drawer.isOpen)
+    }
+
+    private fun applySearchTheme() {
+        val bg = if (drawerDark) 0xF0121212.toInt() else 0xF4FFFFFF.toInt()
+        val field = if (drawerDark) 0x1AFFFFFF else 0x0F000000
+        b.searchOverlay.setBackgroundColor(bg)
+        b.globalSearchBox.background = GradientDrawable().apply {
+            setColor(field)
+            cornerRadius = dp(24).toFloat()
+        }
+        b.globalSearch.setTextColor(drawerState.textColor)
+        b.globalSearch.setHintTextColor(drawerState.subColor)
+        b.globalSearchIcon.imageTintList = ColorStateList.valueOf(drawerState.subColor)
+        b.globalClear.imageTintList = ColorStateList.valueOf(drawerState.subColor)
+    }
+
+    private fun runSearch() {
+        if (!searchOpen) return
+        val q = b.globalSearch.text.toString()
+        searchJob?.cancel()
+        searchJob = lifecycleScope.launch {
+            kotlinx.coroutines.delay(if (q.isBlank()) 0 else 120)
+            val rows = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                UniversalSearch.search(this@LauncherActivity, q, apps, prefs, ::webSearch, ::storeSearch)
+            }
+            searchAdapter.submit(rows)
+            b.searchResults.scrollToPosition(0)
+        }
+    }
+
+    private fun onSearchRow(row: SearchRow, view: View) {
+        when (row) {
+            is SearchRow.App -> {
+                closeSearch()
+                launch(row.app, view)
+            }
+            is SearchRow.Setting -> {
+                closeSearch()
+                try {
+                    startActivity(row.intent)
+                } catch (e: Exception) {
+                    toast("Can't open ${row.label}")
+                }
+            }
+            is SearchRow.Contact -> {
+                closeSearch()
+                try {
+                    val uri = android.provider.ContactsContract.Contacts.getLookupUri(row.id, row.lookupKey)
+                    startActivity(Intent(Intent.ACTION_VIEW, uri))
+                } catch (e: Exception) {
+                    toast("Can't open contact")
+                }
+            }
+            is SearchRow.Media -> {
+                closeSearch()
+                try {
+                    startActivity(
+                        Intent(Intent.ACTION_VIEW).setDataAndType(row.uri, row.mime ?: "*/*")
+                            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
+                    )
+                } catch (e: Exception) {
+                    toast("No app can open this file")
+                }
+            }
+            is SearchRow.Action -> {
+                closeSearch()
+                row.run()
+            }
+            is SearchRow.Permission -> permissionRequest.launch(row.permissions)
+            is SearchRow.Header -> Unit
         }
     }
 

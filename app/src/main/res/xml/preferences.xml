@@ -25,6 +25,13 @@
             app:defaultValue="true"
             app:key="show_clock"
             app:title="Show clock and date" />
+        <ListPreference
+            app:defaultValue="button"
+            app:entries="@array/search_styles"
+            app:entryValues="@array/search_style_values"
+            app:key="search_style"
+            app:title="Search on Home"
+            app:useSimpleSummaryProvider="true" />
         <SwitchPreferenceCompat
             app:defaultValue="true"
             app:key="dock_enabled"

@@ -26,6 +26,7 @@ class Prefs(context: Context) {
     val swipeDownNotifications get() = sp.getBoolean("swipe_down_notifications", true)
     val drawerTheme get() = sp.getString("drawer_theme", "auto")!!
     val drawerStyle get() = sp.getString("drawer_style", "paged")!!
+    val searchStyle get() = sp.getString("search_style", "button")!!
 
     var homePage: Int
         get() = sp.getInt("home_page", 0)
@@ -45,7 +46,7 @@ class Prefs(context: Context) {
 
     fun configSignature() = listOf(
         columns, rows, drawerColumns, iconShape, iconSize, showHomeLabels,
-        showClock, dockEnabled, newBadge, drawerTheme, drawerStyle,
+        showClock, dockEnabled, newBadge, drawerTheme, drawerStyle, searchStyle,
     ).joinToString("|")
 
     fun recordLaunch(key: String) {
