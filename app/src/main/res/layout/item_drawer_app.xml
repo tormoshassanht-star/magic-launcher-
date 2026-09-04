@@ -13,7 +13,9 @@
     <FrameLayout
         android:id="@+id/iconFrame"
         android:layout_width="wrap_content"
-        android:layout_height="wrap_content">
+        android:layout_height="wrap_content"
+        android:clipChildren="false"
+        android:clipToPadding="false">
 
         <ImageView
             android:id="@+id/icon"
@@ -28,6 +30,22 @@
             android:layout_height="14dp"
             android:layout_gravity="top|end"
             android:background="@drawable/badge_dot"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/countBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="20dp"
+            android:layout_gravity="top|end"
+            android:background="@drawable/bg_badge"
+            android:fontFamily="sans-serif-medium"
+            android:gravity="center"
+            android:includeFontPadding="false"
+            android:minWidth="20dp"
+            android:paddingStart="5dp"
+            android:paddingEnd="5dp"
+            android:textColor="#FFFFFF"
+            android:textSize="11sp"
             android:visibility="gone" />
 
         <ImageView

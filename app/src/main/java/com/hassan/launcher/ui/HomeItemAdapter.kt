@@ -16,6 +16,7 @@ class HomeItemAdapter(
     private val showLabels: Boolean,
     private val onClick: (HomeItem, View) -> Unit,
     private val onLongClick: (HomeItem, View) -> Unit,
+    private val badgeFor: (HomeItem) -> Int = { 0 },
 ) : RecyclerView.Adapter<HomeItemAdapter.VH>() {
 
     class VH(val b: ItemHomeAppBinding) : RecyclerView.ViewHolder(b.root)
@@ -47,6 +48,7 @@ class HomeItemAdapter(
             is HomeItem.Widget -> holder.b.icon.setImageDrawable(null)
         }
         holder.b.label.text = item.label
+        Badges.apply(holder.b.countBadge, badgeFor(item))
         holder.b.root.setOnClickListener { onClick(item, holder.b.icon) }
         holder.b.root.setOnLongClickListener {
             it.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)

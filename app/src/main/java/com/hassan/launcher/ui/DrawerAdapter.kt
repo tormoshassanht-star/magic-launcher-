@@ -26,6 +26,7 @@ class DrawerState {
     var onLongClick: (AppInfo, View) -> Unit = { _, _ -> }
     var onGroupDrag: (AppInfo, View) -> Unit = { _, _ -> }
     var onSelectionChanged: () -> Unit = {}
+    var badgeFor: (AppInfo) -> Int = { 0 }
 }
 
 class DrawerAdapter(private val state: DrawerState, private val cellHeight: Int = 0) :
@@ -112,7 +113,9 @@ class DrawerAdapter(private val state: DrawerState, private val cellHeight: Int 
         vh.b.sub.text = item.sub
         vh.b.sub.isVisible = item.sub != null && cellHeight == 0
         vh.b.sub.setTextColor(state.subColor)
-        vh.b.badge.isVisible = state.showNewBadge && System.currentTimeMillis() - app.installTime < newWindowMs
+        val count = state.badgeFor(app)
+        Badges.apply(vh.b.countBadge, count)
+        vh.b.badge.isVisible = count <= 0 && state.showNewBadge && System.currentTimeMillis() - app.installTime < newWindowMs
         val isSelected = state.selectionMode && app.key in state.selected
         vh.b.check.isVisible = isSelected
         vh.b.check.imageTintList = ColorStateList.valueOf(ContextCompat.getColor(ctx, R.color.accent))

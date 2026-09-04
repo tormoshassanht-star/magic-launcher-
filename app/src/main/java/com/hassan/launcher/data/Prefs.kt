@@ -27,6 +27,11 @@ class Prefs(context: Context) {
     val drawerTheme get() = sp.getString("drawer_theme", "auto")!!
     val drawerStyle get() = sp.getString("drawer_style", "paged")!!
     val searchStyle get() = sp.getString("search_style", "button")!!
+    val badges get() = sp.getBoolean("badges", true)
+
+    var askedBadges: Boolean
+        get() = sp.getBoolean("asked_badges", false)
+        set(v) = sp.edit().putBoolean("asked_badges", v).apply()
 
     var homePage: Int
         get() = sp.getInt("home_page", 0)
@@ -46,7 +51,7 @@ class Prefs(context: Context) {
 
     fun configSignature() = listOf(
         columns, rows, drawerColumns, iconShape, iconSize, showHomeLabels,
-        showClock, dockEnabled, newBadge, drawerTheme, drawerStyle, searchStyle,
+        showClock, dockEnabled, newBadge, drawerTheme, drawerStyle, searchStyle, badges,
     ).joinToString("|")
 
     fun recordLaunch(key: String) {

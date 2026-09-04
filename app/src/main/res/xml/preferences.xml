@@ -42,6 +42,18 @@
             app:title="Reset home layout" />
     </PreferenceCategory>
 
+    <PreferenceCategory app:title="Notification badges">
+        <SwitchPreferenceCompat
+            app:defaultValue="true"
+            app:key="badges"
+            app:summary="Shows the unread count on app icons, like Honor"
+            app:title="Show notification counts" />
+        <Preference
+            app:key="notification_access"
+            app:summary="Badges need notification access for Magic Launcher"
+            app:title="Enable notification access" />
+    </PreferenceCategory>
+
     <PreferenceCategory app:title="Icons">
         <ListPreference
             app:defaultValue="rounded"

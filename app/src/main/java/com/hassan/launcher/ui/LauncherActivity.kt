@@ -68,6 +68,7 @@ import com.hassan.launcher.databinding.ActivityLauncherBinding
 import com.hassan.launcher.databinding.ItemHomeAppBinding
 import com.hassan.launcher.model.AppInfo
 import com.hassan.launcher.service.GestureAccessibilityService
+import com.hassan.launcher.service.NotificationBadgeService
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -173,6 +174,40 @@ class LauncherActivity : AppCompatActivity() {
     }
 
     private val drawerState = DrawerState()
+    private var badgeCounts: Map<String, Int> = emptyMap()
+
+    private fun badgeForPackage(pkg: String): Int = if (prefs.badges) badgeCounts[pkg] ?: 0 else 0
+
+    private fun badgeFor(item: HomeItem): Int = when (item) {
+        is HomeItem.App -> badgeForPackage(item.app.packageName)
+        is HomeItem.Folder -> item.apps.map { it.packageName }.distinct().sumOf { badgeForPackage(it) }
+        is HomeItem.Widget -> 0
+    }
+
+    private fun applyBadges() {
+        for (layout in pageLayouts.values) {
+            for (i in 0 until layout.childCount) {
+                val child = layout.getChildAt(i)
+                val item = child.tag as? HomeItem ?: continue
+                val badge = child.findViewById<TextView>(R.id.countBadge) ?: continue
+                Badges.apply(badge, badgeFor(item))
+            }
+        }
+        dockAdapter?.notifyDataSetChanged()
+        b.folderGrid.adapter?.notifyDataSetChanged()
+        refreshDrawerViews()
+    }
+
+    private fun maybeAskNotificationAccess() {
+        if (!prefs.badges || prefs.askedBadges || NotificationBadgeService.isEnabled(this)) return
+        prefs.askedBadges = true
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Show notification counts?")
+            .setMessage("To show unread counts on app icons like Honor does, Magic Launcher needs notification access. Turn it on for Magic Launcher on the next screen.")
+            .setNegativeButton("Not now", null)
+            .setPositiveButton("Open settings") { _, _ -> startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
+            .show()
+    }
     private var drawerPages: List<List<DrawerItem>> = emptyList()
     private var overviewOpen = false
     private var dragMoved = false
@@ -229,6 +264,15 @@ class LauncherActivity : AppCompatActivity() {
                 AppRepository.apps.collect { onApps(it) }
             }
         }
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                NotificationBadgeService.counts.collect {
+                    badgeCounts = it
+                    applyBadges()
+                }
+            }
+        }
+        drawerState.badgeFor = { badgeForPackage(it.packageName) }
 
         onBackPressedDispatcher.addCallback(this) { handleBack() }
     }
@@ -265,6 +309,8 @@ class LauncherActivity : AppCompatActivity() {
         if (!isDefaultLauncher() && !prefs.askedDefault) {
             prefs.askedDefault = true
             requestDefaultLauncher()
+        } else {
+            maybeAskNotificationAccess()
         }
         sortMode = SortMode.of(prefs.drawerSort)
         val s = prefs.configSignature()
@@ -616,10 +662,10 @@ class LauncherActivity : AppCompatActivity() {
 
     private fun rebuildDock() {
         val items = resolveItems(dock)
-        val da = HomeItemAdapter(items, dp(84), false, ::onItemClick) { item, view ->
+        val da = HomeItemAdapter(items, dp(84), false, ::onItemClick, { item, view ->
             showHomeItemPopup(item, view, null)
             startDrag(item, DragSource.Dock, view, (view.parent as? View) ?: view, 1, 1)
-        }
+        }, ::badgeFor)
         dockAdapter = da
         b.dock.layoutManager = GridLayoutManager(this, items.size.coerceAtLeast(1))
         b.dock.adapter = da
@@ -711,6 +757,7 @@ class LauncherActivity : AppCompatActivity() {
             is HomeItem.Widget -> Unit
         }
         vb.label.text = item.label
+        Badges.apply(vb.countBadge, badgeFor(item))
         vb.root.setOnClickListener { onItemClick(item, vb.icon) }
         vb.root.setOnLongClickListener {
             it.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
@@ -1494,10 +1541,10 @@ class LauncherActivity : AppCompatActivity() {
         b.folderGrid.layoutParams = b.folderGrid.layoutParams.apply {
             height = minOf(rowsNeeded * dp(100), (resources.displayMetrics.heightPixels * 0.62f).toInt())
         }
-        b.folderGrid.adapter = HomeItemAdapter(items, dp(100), true, ::onItemClick) { item, view ->
+        b.folderGrid.adapter = HomeItemAdapter(items, dp(100), true, ::onItemClick, { item, view ->
             showFolderAppPopup(item, view, id)
             startDrag(item, DragSource.Folder(id), view, (view.parent as? View) ?: view, 1, 1)
-        }
+        }, ::badgeFor)
         b.folderOverlay.isVisible = true
         b.folderCard.alpha = 0f
         b.folderCard.scaleX = 0.9f

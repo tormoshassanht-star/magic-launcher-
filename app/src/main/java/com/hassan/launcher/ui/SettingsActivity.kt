@@ -34,6 +34,7 @@ class SettingsActivity : AppCompatActivity() {
 
             click("hidden_apps") { startActivity(Intent(requireContext(), HiddenAppsActivity::class.java)) }
             click("accessibility") { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+            click("notification_access") { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
             click("default_launcher") { DefaultLauncher.openSettings(requireContext()) }
             click("wallpaper") {
                 startActivity(Intent.createChooser(Intent(Intent.ACTION_SET_WALLPAPER), "Choose wallpaper"))
