@@ -2,7 +2,6 @@ package com.hassan.launcher.ui
 
 import android.app.ActivityOptions
 import android.app.role.RoleManager
-import android.appwidget.AppWidgetHost
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProviderInfo
 import android.content.BroadcastReceiver
@@ -92,7 +91,8 @@ class LauncherActivity : AppCompatActivity() {
     private lateinit var prefs: Prefs
     private var pullActive = false
     private lateinit var drawerAdapter: DrawerAdapter
-    private lateinit var host: AppWidgetHost
+    private lateinit var host: LauncherWidgetHost
+    private var hostListening = false
     private lateinit var awm: AppWidgetManager
     private var workspaceAdapter: WorkspaceAdapter? = null
     private var dockAdapter: HomeItemAdapter? = null
@@ -206,7 +206,8 @@ class LauncherActivity : AppCompatActivity() {
         IconCache.configure(this, prefs.iconShape, prefs.iconSize)
         AppRepository.init(this)
         awm = AppWidgetManager.getInstance(this)
-        host = AppWidgetHost(this, HOST_ID)
+        host = LauncherWidgetHost(this, HOST_ID)
+        startHostListening()
         sortMode = SortMode.of(prefs.drawerSort)
         sig = prefs.configSignature()
 
@@ -235,10 +236,7 @@ class LauncherActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
         ContextCompat.registerReceiver(this, batteryReceiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED), ContextCompat.RECEIVER_NOT_EXPORTED)
-        try {
-            host.startListening()
-        } catch (e: Exception) {
-        }
+        startHostListening()
     }
 
     override fun onStop() {
@@ -246,6 +244,16 @@ class LauncherActivity : AppCompatActivity() {
         unregisterReceiver(batteryReceiver)
         try {
             host.stopListening()
+        } catch (e: Exception) {
+        }
+        hostListening = false
+    }
+
+    private fun startHostListening() {
+        if (hostListening) return
+        try {
+            host.startListening()
+            hostListening = true
         } catch (e: Exception) {
         }
     }
@@ -720,6 +728,7 @@ class LauncherActivity : AppCompatActivity() {
             val info = item.info
             if (info != null) {
                 try {
+                    startHostListening()
                     val hv = host.createView(this, item.id, info)
                     f.addView(hv, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
                 } catch (e: Exception) {
