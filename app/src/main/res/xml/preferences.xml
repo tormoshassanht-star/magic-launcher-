@@ -32,6 +32,13 @@
             app:key="search_style"
             app:title="Search on Home"
             app:useSimpleSummaryProvider="true" />
+        <ListPreference
+            app:defaultValue="system"
+            app:entries="@array/search_targets"
+            app:entryValues="@array/search_target_values"
+            app:key="search_target"
+            app:summary="Long press the search button for the other one"
+            app:title="Search button opens" />
         <SwitchPreferenceCompat
             app:defaultValue="true"
             app:key="dock_enabled"
@@ -131,6 +138,10 @@
         <Preference
             app:key="default_launcher"
             app:title="Set as default launcher" />
+        <Preference
+            app:key="battery"
+            app:summary="Stops Honor from closing the launcher, so Home doesn't reload each time"
+            app:title="Keep launcher running" />
         <Preference
             app:key="wallpaper"
             app:title="Change wallpaper" />

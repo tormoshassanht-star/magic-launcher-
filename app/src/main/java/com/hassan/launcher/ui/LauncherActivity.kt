@@ -94,6 +94,10 @@ class LauncherActivity : AppCompatActivity() {
     private lateinit var drawerAdapter: DrawerAdapter
     private lateinit var host: LauncherWidgetHost
     private var hostListening = false
+
+    // Widgets must be inflated with a context whose LayoutInflater has no AppCompat factory,
+    // otherwise ImageView becomes AppCompatImageView and RemoteViews actions fail.
+    private val widgetContext: Context by lazy { android.view.ContextThemeWrapper(applicationContext, R.style.Theme_Launcher) }
     private lateinit var awm: AppWidgetManager
     private var workspaceAdapter: WorkspaceAdapter? = null
     private var dockAdapter: HomeItemAdapter? = null
@@ -309,8 +313,10 @@ class LauncherActivity : AppCompatActivity() {
         if (!isDefaultLauncher() && !prefs.askedDefault) {
             prefs.askedDefault = true
             requestDefaultLauncher()
-        } else {
+        } else if (!prefs.askedBadges) {
             maybeAskNotificationAccess()
+        } else {
+            maybeAskBatteryException()
         }
         sortMode = SortMode.of(prefs.drawerSort)
         val s = prefs.configSignature()
@@ -399,13 +405,21 @@ class LauncherActivity : AppCompatActivity() {
             rootGestures.onTouch(e)
             true
         }
-        b.searchBar.setOnClickListener { openSearch() }
-        b.searchButton.setOnClickListener { openSearch() }
+        b.searchBar.setOnClickListener { openSearchEntry() }
+        b.searchButton.setOnClickListener { openSearchEntry() }
+        b.searchButton.setOnLongClickListener {
+            openSearch()
+            true
+        }
         b.searchButton.background = GradientDrawable().apply {
             setColor(0x59000000)
             cornerRadius = dp(18).toFloat()
         }
         b.defaultBanner.setOnClickListener { requestDefaultLauncher() }
+        b.defaultBannerClose.setOnClickListener {
+            prefs.hideDefaultBanner = true
+            b.defaultBanner.isVisible = false
+        }
         b.mic.setOnClickListener {
             try {
                 startActivity(Intent("android.speech.action.WEB_SEARCH"))
@@ -649,6 +663,7 @@ class LauncherActivity : AppCompatActivity() {
         b.header.isVisible = prefs.showClock
         b.searchButton.isVisible = prefs.searchStyle == "button"
         b.searchBar.isVisible = prefs.searchStyle == "bar"
+        updateDefaultBanner()
         val current = if (workspaceAdapter == null) homePageIndex() else b.workspace.currentItem
         pageLayouts.clear()
         val wa = WorkspaceAdapter()
@@ -776,7 +791,7 @@ class LauncherActivity : AppCompatActivity() {
             if (info != null) {
                 try {
                     startHostListening()
-                    val hv = host.createView(this, item.id, info)
+                    val hv = host.createView(widgetContext, item.id, info)
                     f.addView(hv, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
                 } catch (e: Exception) {
                     f.addView(widgetPlaceholder())
@@ -1837,6 +1852,24 @@ class LauncherActivity : AppCompatActivity() {
         b.searchContent.setOnClickListener { }
     }
 
+    private fun systemSearchApp(): AppInfo? {
+        val candidates = listOf("com.hihonor.search", "com.huawei.search", "com.hihonor.hisearch", "com.huawei.hisearch")
+        candidates.forEach { pkg -> apps.firstOrNull { it.packageName == pkg }?.let { return it } }
+        return apps.firstOrNull { it.label.equals("Honor Search", true) || it.label.equals("HiSearch", true) }
+            ?: apps.firstOrNull { it.packageName.contains("search") && (it.packageName.startsWith("com.hihonor") || it.packageName.startsWith("com.huawei")) }
+    }
+
+    private fun openSearchEntry() {
+        if (prefs.searchTarget == "system") {
+            val app = systemSearchApp()
+            if (app != null) {
+                launch(app, b.searchButton)
+                return
+            }
+        }
+        openSearch()
+    }
+
     private fun openSearch() {
         if (searchOpen) return
         dismissPopup()
@@ -2085,6 +2118,7 @@ class LauncherActivity : AppCompatActivity() {
             pickWidget(app.packageName)
         }
         entries += PopupEntry("App info", R.drawable.ic_info) { appInfo(app) }
+        entries += PopupEntry("Force stop", R.drawable.ic_close) { forceStop(app) }
         if (!app.isSystem) entries += PopupEntry("Uninstall", R.drawable.ic_delete, destructive = true) { uninstall(app) }
         dismissPopup()
         popup = AppPopup.show(anchor, app.label, entries)
@@ -2154,6 +2188,7 @@ class LauncherActivity : AppCompatActivity() {
                 }
                 if (hasWidgets(item.app.packageName)) entries += PopupEntry("Widgets", R.drawable.ic_apps) { pickWidget(item.app.packageName) }
                 entries += PopupEntry("App info", R.drawable.ic_info) { appInfo(item.app) }
+                entries += PopupEntry("Force stop", R.drawable.ic_close) { forceStop(item.app) }
                 if (!item.app.isSystem) entries += PopupEntry("Uninstall", R.drawable.ic_delete, destructive = true) { uninstall(item.app) }
             }
             is HomeItem.Widget -> return
@@ -2330,6 +2365,10 @@ class LauncherActivity : AppCompatActivity() {
     // ---------------------------------------------------------------- system helpers
 
     private fun isDefaultLauncher(): Boolean {
+        if (Build.VERSION.SDK_INT >= 29) {
+            val rm = getSystemService(RoleManager::class.java)
+            if (rm.isRoleAvailable(RoleManager.ROLE_HOME) && rm.isRoleHeld(RoleManager.ROLE_HOME)) return true
+        }
         val ri = packageManager.resolveActivity(
             Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME),
             PackageManager.MATCH_DEFAULT_ONLY,
@@ -2338,7 +2377,40 @@ class LauncherActivity : AppCompatActivity() {
     }
 
     private fun updateDefaultBanner() {
-        b.defaultBanner.isVisible = !isDefaultLauncher()
+        b.defaultBanner.isVisible = apps.isNotEmpty() && !prefs.hideDefaultBanner && !isDefaultLauncher()
+    }
+
+    private fun maybeAskBatteryException() {
+        if (prefs.askedBattery) return
+        prefs.launchCount = prefs.launchCount + 1
+        if (prefs.launchCount < 3) return
+        val pm = getSystemService(android.os.PowerManager::class.java)
+        if (pm.isIgnoringBatteryOptimizations(packageName)) {
+            prefs.askedBattery = true
+            return
+        }
+        prefs.askedBattery = true
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Keep Magic Launcher running")
+            .setMessage("Honor closes background apps to save battery, which makes the launcher reload every time you press Home. Allow it to keep running, and in Settings > Battery > App launch set Magic Launcher to manual with all three switches on.")
+            .setNegativeButton("Later", null)
+            .setPositiveButton("Allow") { _, _ -> requestBatteryException() }
+            .show()
+    }
+
+    private fun requestBatteryException() {
+        try {
+            startActivity(
+                Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                    .setData(Uri.parse("package:$packageName")),
+            )
+        } catch (e: Exception) {
+            try {
+                startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+            } catch (e2: Exception) {
+                toast("Open Settings > Battery > App launch")
+            }
+        }
     }
 
     private fun requestDefaultLauncher() {
@@ -2371,6 +2443,15 @@ class LauncherActivity : AppCompatActivity() {
                 .startAppDetailsActivity(ComponentName(app.packageName, app.activityName), Process.myUserHandle(), null, null)
         } catch (e: Exception) {
             startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${app.packageName}")))
+        }
+    }
+
+    private fun forceStop(app: AppInfo) {
+        toast("Android only lets Settings force-stop apps. Tap Force stop on the next screen.")
+        try {
+            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${app.packageName}")))
+        } catch (e: Exception) {
+            appInfo(app)
         }
     }
 

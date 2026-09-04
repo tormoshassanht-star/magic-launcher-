@@ -98,6 +98,16 @@
                     android:text="Not your default launcher yet. Tap to set it, so the Home button keeps you here."
                     android:textColor="#1A1A1A"
                     android:textSize="13sp" />
+
+                <ImageView
+                    android:id="@+id/defaultBannerClose"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Dismiss"
+                    android:padding="7dp"
+                    android:src="@drawable/ic_close"
+                    app:tint="#5F6368" />
             </LinearLayout>
 
             <LinearLayout
@@ -109,7 +119,8 @@
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
                 android:paddingStart="14dp"
-                android:paddingEnd="18dp">
+                android:paddingEnd="18dp"
+                android:visibility="gone">
 
                 <ImageView
                     android:layout_width="18dp"
@@ -140,7 +151,8 @@
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
                 android:paddingStart="18dp"
-                android:paddingEnd="14dp">
+                android:paddingEnd="14dp"
+                android:visibility="gone">
 
                 <ImageView
                     android:layout_width="22dp"
@@ -177,7 +189,8 @@
                 android:layout_marginTop="12dp"
                 android:layout_marginEnd="16dp"
                 android:layout_marginBottom="10dp"
-                android:background="@drawable/bg_dock">
+                android:background="@drawable/bg_dock"
+                android:visibility="gone">
 
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/dock"

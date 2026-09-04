@@ -35,6 +35,23 @@ class SettingsActivity : AppCompatActivity() {
             click("hidden_apps") { startActivity(Intent(requireContext(), HiddenAppsActivity::class.java)) }
             click("accessibility") { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
             click("notification_access") { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
+            click("battery") {
+                MaterialAlertDialogBuilder(requireContext())
+                    .setTitle("Keep Magic Launcher running")
+                    .setMessage("1. Allow the exception on the next screen.\n2. Then open Settings > Battery > App launch, find Magic Launcher, switch it to Manage manually and turn on all three options.")
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Continue") { _, _ ->
+                        try {
+                            startActivity(
+                                Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                                    .setData(android.net.Uri.parse("package:${requireContext().packageName}")),
+                            )
+                        } catch (e: Exception) {
+                            startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                        }
+                    }
+                    .show()
+            }
             click("default_launcher") { DefaultLauncher.openSettings(requireContext()) }
             click("wallpaper") {
                 startActivity(Intent.createChooser(Intent(Intent.ACTION_SET_WALLPAPER), "Choose wallpaper"))

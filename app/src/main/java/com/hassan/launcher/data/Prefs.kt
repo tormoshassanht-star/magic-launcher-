@@ -27,7 +27,20 @@ class Prefs(context: Context) {
     val drawerTheme get() = sp.getString("drawer_theme", "auto")!!
     val drawerStyle get() = sp.getString("drawer_style", "paged")!!
     val searchStyle get() = sp.getString("search_style", "button")!!
+    val searchTarget get() = sp.getString("search_target", "system")!!
     val badges get() = sp.getBoolean("badges", true)
+
+    var hideDefaultBanner: Boolean
+        get() = sp.getBoolean("hide_default_banner", false)
+        set(v) = sp.edit().putBoolean("hide_default_banner", v).apply()
+
+    var askedBattery: Boolean
+        get() = sp.getBoolean("asked_battery", false)
+        set(v) = sp.edit().putBoolean("asked_battery", v).apply()
+
+    var launchCount: Int
+        get() = sp.getInt("launch_count", 0)
+        set(v) = sp.edit().putInt("launch_count", v).apply()
 
     var askedBadges: Boolean
         get() = sp.getBoolean("asked_badges", false)
