@@ -8,6 +8,7 @@ import androidx.dynamicanimation.animation.DynamicAnimation
 import androidx.dynamicanimation.animation.FloatPropertyCompat
 import androidx.dynamicanimation.animation.SpringAnimation
 import androidx.dynamicanimation.animation.SpringForce
+import com.hassan.launcher.R
 import kotlin.math.pow
 
 object Springs {
@@ -46,11 +47,12 @@ object Springs {
         spring(view, DynamicAnimation.ALPHA, 1f, response).animateToFinalPosition(alpha)
     }
 
+    // View.setTag(int, Object) only accepts ids declared in resources; anything else throws.
     private fun spring(view: View, prop: FloatPropertyCompat<View>, damping: Float, response: Float): SpringAnimation {
         val key = when (prop) {
-            DynamicAnimation.SCALE_X -> TAG_SX
-            DynamicAnimation.SCALE_Y -> TAG_SY
-            else -> TAG_ALPHA
+            DynamicAnimation.SCALE_X -> R.id.spring_scale_x
+            DynamicAnimation.SCALE_Y -> R.id.spring_scale_y
+            else -> R.id.spring_alpha
         }
         val existing = view.getTag(key) as? SpringAnimation
         if (existing != null) {
@@ -62,10 +64,6 @@ object Springs {
         view.setTag(key, s)
         return s
     }
-
-    private val TAG_SX = View.generateViewId()
-    private val TAG_SY = View.generateViewId()
-    private val TAG_ALPHA = View.generateViewId()
 }
 
 object PressFeedback {
