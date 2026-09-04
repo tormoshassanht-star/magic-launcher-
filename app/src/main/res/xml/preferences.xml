@@ -21,10 +21,6 @@
             app:defaultValue="true"
             app:key="home_labels"
             app:title="Show app names" />
-        <SwitchPreferenceCompat
-            app:defaultValue="false"
-            app:key="show_clock"
-            app:title="Show clock and date" />
         <ListPreference
             app:defaultValue="button"
             app:entries="@array/search_styles"

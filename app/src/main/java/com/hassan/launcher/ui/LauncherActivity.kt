@@ -145,6 +145,10 @@ class LauncherActivity : AppCompatActivity() {
         override fun onPullStart(): Boolean {
             if (currentDrag != null || overviewOpen || openFolderId != null || resizing != null || searchOpen) return false
             dismissPopup()
+            if (drawerBadgesStale) {
+                drawerBadgesStale = false
+                refreshDrawerViews()
+            }
             pullActive = true
             b.drawer.beginDrag()
             return true
@@ -209,9 +213,11 @@ class LauncherActivity : AppCompatActivity() {
             }
         }
         dockAdapter?.notifyDataSetChanged()
-        b.folderGrid.adapter?.notifyDataSetChanged()
-        refreshDrawerViews()
+        if (openFolderId != null) b.folderGrid.adapter?.notifyDataSetChanged()
+        if (b.drawer.isShowing) refreshDrawerViews() else drawerBadgesStale = true
     }
+
+    private var drawerBadgesStale = false
 
     private fun maybeAskNotificationAccess() {
         if (!prefs.badges || prefs.askedBadges || NotificationBadgeService.isEnabled(this)) return
@@ -402,7 +408,7 @@ class LauncherActivity : AppCompatActivity() {
             val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
             b.header.updatePadding(top = sb.top + dp(6))
             statusBarTop = sb.top
-            b.homeColumn.updatePadding(top = if (prefs.showClock) 0 else sb.top + dp(10), bottom = sb.bottom)
+            b.homeColumn.updatePadding(top = sb.top + dp(10), bottom = sb.bottom)
             b.removeZone.updateLayoutParams<ViewGroup.MarginLayoutParams> { topMargin = sb.top + dp(10) }
             b.drawerContent.updatePadding(top = sb.top, bottom = max(sb.bottom, ime.bottom))
             b.folderOverlay.updatePadding(top = sb.top, bottom = max(sb.bottom, ime.bottom))
@@ -673,8 +679,8 @@ class LauncherActivity : AppCompatActivity() {
     private fun rebuildHome() {
         if (pageHeight == 0 || apps.isEmpty()) return
         if (normalizeLayout()) saveLayout()
-        b.header.isVisible = prefs.showClock
-        b.homeColumn.updatePadding(top = if (prefs.showClock) 0 else statusBarTop + dp(10))
+        b.header.isVisible = false
+        b.homeColumn.updatePadding(top = statusBarTop + dp(10))
         b.searchButton.isVisible = prefs.searchStyle == "button"
         b.searchBar.isVisible = prefs.searchStyle == "bar"
         updateDefaultBanner()
@@ -2023,43 +2029,17 @@ class LauncherActivity : AppCompatActivity() {
 
     // ---------------------------------------------------------------- materials
 
-    private val blurSupported: Boolean by lazy {
-        Build.VERSION.SDK_INT >= 31 && try {
-            windowManager.isCrossWindowBlurEnabled
-        } catch (e: Exception) {
-            false
-        }
-    }
-    private var lastBlur = -1
+    // Real-time blur (RenderEffect / blur-behind) made the home content vanish and stutter on Honor,
+    // so depth is conveyed with fade and scale only.
+    private val blurSupported = false
 
-    private fun setBackdropBlur(fraction: Float) {
-        if (Build.VERSION.SDK_INT < 31) return
-        val radius = (fraction.coerceIn(0f, 1f) * dp(30)).toInt() / 3 * 3
-        if (radius == lastBlur) return
-        lastBlur = radius
-        if (blurSupported) {
-            val lp = window.attributes
-            if (radius > 0) {
-                lp.flags = lp.flags or WindowManager.LayoutParams.FLAG_BLUR_BEHIND
-                lp.blurBehindRadius = radius
-            } else {
-                lp.flags = lp.flags and WindowManager.LayoutParams.FLAG_BLUR_BEHIND.inv()
-                lp.blurBehindRadius = 0
-            }
-            window.attributes = lp
-        }
-        b.home.setRenderEffect(
-            if (radius > 0) android.graphics.RenderEffect.createBlurEffect(radius.toFloat(), radius.toFloat(), android.graphics.Shader.TileMode.CLAMP) else null,
-        )
-    }
+    private fun setBackdropBlur(fraction: Float) = Unit
 
     private fun setHomeRecede(f: Float) {
-        val fade = if (Build.VERSION.SDK_INT >= 31) 0.45f else 0.75f
-        b.home.alpha = 1f - f * fade
+        b.home.alpha = 1f - f * 0.75f
         val s = 1f - f * 0.06f
         b.home.scaleX = s
         b.home.scaleY = s
-        setBackdropBlur(f)
     }
 
     private fun updateStatusBarIcons(drawerOpen: Boolean) {
@@ -2116,6 +2096,10 @@ class LauncherActivity : AppCompatActivity() {
     private fun openDrawer(focusSearch: Boolean = false) {
         dismissPopup()
         if (openFolderId != null) closeFolder()
+        if (drawerBadgesStale) {
+            drawerBadgesStale = false
+            refreshDrawerViews()
+        }
         b.drawer.open()
         if (focusSearch) {
             b.searchInput.postDelayed({
