@@ -24,6 +24,7 @@ class DrawerState {
     val selected = LinkedHashSet<String>()
     var onClick: (AppInfo, View) -> Unit = { _, _ -> }
     var onLongClick: (AppInfo, View) -> Unit = { _, _ -> }
+    var onGroupDrag: (AppInfo, View) -> Unit = { _, _ -> }
     var onSelectionChanged: () -> Unit = {}
 }
 
@@ -121,7 +122,10 @@ class DrawerAdapter(private val state: DrawerState, private val cellHeight: Int 
         }
         vh.b.root.setOnLongClickListener {
             it.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-            if (state.selectionMode) toggle(app) else state.onLongClick(app, vh.b.icon)
+            if (state.selectionMode) {
+                if (app.key !in state.selected) toggle(app)
+                state.onGroupDrag(app, vh.b.icon)
+            } else state.onLongClick(app, vh.b.icon)
             true
         }
     }

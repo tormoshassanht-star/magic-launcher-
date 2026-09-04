@@ -48,8 +48,58 @@ sealed class DragSource {
     object Drawer : DragSource()
 }
 
-class DragState(val item: HomeItem, val source: DragSource, val ghost: View, val spanX: Int, val spanY: Int) {
+class DragState(
+    val item: HomeItem,
+    val source: DragSource,
+    val ghost: View,
+    val spanX: Int,
+    val spanY: Int,
+    val extras: List<AppInfo> = emptyList(),
+) {
     var dropped = false
+}
+
+class StackShadow(view: View, private val count: Int) : View.DragShadowBuilder(view) {
+    private val scale = 1.18f
+    private val pad: Int get() = (view.width * 0.3f).toInt()
+
+    override fun onProvideShadowMetrics(outShadowSize: Point, outShadowTouchPoint: Point) {
+        val w = (view.width * scale).toInt() + pad
+        val h = (view.height * scale).toInt() + pad
+        outShadowSize.set(w, h)
+        outShadowTouchPoint.set(w / 2, h / 2)
+    }
+
+    override fun onDrawShadow(canvas: Canvas) {
+        val p = pad
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        val steps = minOf(count - 1, 2)
+        for (i in steps downTo 1) {
+            canvas.save()
+            canvas.translate(p * 0.35f * i + p * 0.3f, p * 0.35f * (steps - i))
+            canvas.scale(scale, scale)
+            paint.alpha = 255
+            view.alpha = 0.55f
+            view.draw(canvas)
+            view.alpha = 1f
+            canvas.restore()
+        }
+        canvas.save()
+        canvas.translate(p * 0.3f, p * 0.35f * steps)
+        canvas.scale(scale, scale)
+        view.draw(canvas)
+        canvas.restore()
+        val r = p * 0.42f
+        val cx = view.width * scale + p * 0.3f - r * 0.6f
+        val cy = r
+        paint.color = 0xFF1E88E5.toInt()
+        canvas.drawCircle(cx, cy, r, paint)
+        paint.color = 0xFFFFFFFF.toInt()
+        paint.textAlign = Paint.Align.CENTER
+        paint.textSize = r * 1.15f
+        paint.isFakeBoldText = true
+        canvas.drawText(count.toString(), cx, cy - (paint.descent() + paint.ascent()) / 2, paint)
+    }
 }
 
 class LiftShadow(view: View, private val scale: Float) : View.DragShadowBuilder(view) {

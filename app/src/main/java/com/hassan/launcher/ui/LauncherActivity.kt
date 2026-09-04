@@ -1089,12 +1089,21 @@ class LauncherActivity : AppCompatActivity() {
         return dragMoved
     }
 
-    private fun startDrag(item: HomeItem, source: DragSource, shadowView: View, ghost: View, spanX: Int, spanY: Int) {
+    private fun startDrag(
+        item: HomeItem,
+        source: DragSource,
+        shadowView: View,
+        ghost: View,
+        spanX: Int,
+        spanY: Int,
+        extras: List<AppInfo> = emptyList(),
+    ) {
         if (currentDrag != null) return
-        val state = DragState(item, source, ghost, spanX, spanY)
+        val state = DragState(item, source, ghost, spanX, spanY, extras)
         val scale = if (item is HomeItem.Widget) 1.04f else 1.18f
+        val shadow = if (extras.isNotEmpty()) StackShadow(shadowView, extras.size + 1) else LiftShadow(shadowView, scale)
         val started = try {
-            shadowView.startDragAndDrop(ClipData.newPlainText("item", item.key), LiftShadow(shadowView, scale), state, 0)
+            shadowView.startDragAndDrop(ClipData.newPlainText("item", item.key), shadow, state, 0)
         } catch (e: Exception) {
             false
         }
@@ -1258,8 +1267,8 @@ class LauncherActivity : AppCompatActivity() {
                     folders[id] = FolderData("Folder", mutableListOf(target.key, dragged.key))
                     val idx = cells.indexOfFirst { it.key == target.key }
                     if (idx >= 0) cells[idx] = HomeCell(HomeItem.FOLDER_PREFIX + id, cells[idx].col, cells[idx].row)
-                    drag.dropped = true
-                    commitLayout()
+                    addExtrasToFolder(id, drag.extras)
+                    finishGroupDrop(drag)
                     b.root.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
                     return true
                 }
@@ -1267,8 +1276,8 @@ class LauncherActivity : AppCompatActivity() {
                     if (!folderHasRoom(target.id)) return false
                     removeFromSource(drag)
                     folders[target.id]?.apps?.add(dragged.key)
-                    drag.dropped = true
-                    commitLayout()
+                    addExtrasToFolder(target.id, drag.extras)
+                    finishGroupDrop(drag)
                     return true
                 }
                 else -> Unit
@@ -1281,9 +1290,42 @@ class LauncherActivity : AppCompatActivity() {
         }
         removeFromSource(drag)
         cells.add(HomeCell(dragged.key, pos.first, pos.second, drag.spanX, drag.spanY))
+        placeExtras(page, drag.extras)
+        finishGroupDrop(drag)
+        return true
+    }
+
+    private fun addExtrasToFolder(id: String, extras: List<AppInfo>) {
+        if (extras.isEmpty()) return
+        val f = folders[id] ?: return
+        val room = (FOLDER_CAPACITY - f.apps.size).coerceAtLeast(0)
+        val toAdd = extras.map { it.key }.filter { it !in f.apps }
+        f.apps.addAll(toAdd.take(room))
+        if (toAdd.size > room) toast("${toAdd.size - room} apps didn't fit in the folder")
+    }
+
+    private fun placeExtras(startPage: Int, extras: List<AppInfo>) {
+        if (extras.isEmpty()) return
+        var page = startPage
+        var occ = occupancy(pages[page], null)
+        for (app in extras) {
+            var pos = findVacant(occ, 1, 1)
+            while (pos == null) {
+                page++
+                if (page >= pages.size) pages.add(mutableListOf())
+                occ = occupancy(pages[page], null)
+                pos = findVacant(occ, 1, 1)
+            }
+            mark(occ, pos.first, pos.second, 1, 1)
+            pages[page].add(HomeCell(app.key, pos.first, pos.second))
+        }
+        if (page != startPage) toast("Some apps went to page ${page + 1}")
+    }
+
+    private fun finishGroupDrop(drag: DragState) {
         drag.dropped = true
         commitLayout()
-        return true
+        if (drag.extras.isNotEmpty()) setSelectionMode(false)
     }
 
     private fun onDockDrag(e: DragEvent): Boolean {
@@ -1339,16 +1381,16 @@ class LauncherActivity : AppCompatActivity() {
                     folders[id] = FolderData("Folder", mutableListOf(target.key, dragged.key))
                     val idx = dock.indexOf(target.key)
                     if (idx >= 0) dock[idx] = HomeItem.FOLDER_PREFIX + id
-                    drag.dropped = true
-                    commitLayout()
+                    addExtrasToFolder(id, drag.extras)
+                    finishGroupDrop(drag)
                     return true
                 }
                 is HomeItem.Folder -> {
                     if (!folderHasRoom(target.id)) return false
                     removeFromSource(drag)
                     folders[target.id]?.apps?.add(dragged.key)
-                    drag.dropped = true
-                    commitLayout()
+                    addExtrasToFolder(target.id, drag.extras)
+                    finishGroupDrop(drag)
                     return true
                 }
                 else -> Unit
@@ -1373,8 +1415,19 @@ class LauncherActivity : AppCompatActivity() {
             removeFromSource(drag)
         }
         dock.add(idx.coerceIn(0, dock.size), dragged.key)
-        drag.dropped = true
-        commitLayout()
+        if (drag.extras.isNotEmpty()) {
+            if (drag.extras.size + 1 > 5 - (dock.size - 1)) {
+                val id = System.currentTimeMillis().toString(36)
+                dock[dock.indexOf(dragged.key)] = HomeItem.FOLDER_PREFIX + id
+                folders[id] = FolderData("Folder", mutableListOf(dragged.key))
+                addExtrasToFolder(id, drag.extras)
+                toast("Grouped into a folder to fit the dock")
+            } else {
+                var at = dock.indexOf(dragged.key) + 1
+                for (app in drag.extras) if (app.key !in dock) dock.add(at++, app.key)
+            }
+        }
+        finishGroupDrop(drag)
         return true
     }
 
@@ -1484,6 +1537,10 @@ class LauncherActivity : AppCompatActivity() {
 
         drawerState.onClick = ::launch
         drawerState.onLongClick = ::showDrawerAppPopup
+        drawerState.onGroupDrag = { app, view ->
+            val extras = selectedApps().filter { it.key != app.key }
+            startDrag(HomeItem.App(app), DragSource.Drawer, view, (view.parent as? View) ?: view, 1, 1, extras)
+        }
         drawerState.onSelectionChanged = { updateSelectionBar() }
         drawerAdapter = DrawerAdapter(drawerState)
         b.drawerPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
