@@ -73,6 +73,7 @@ object AppPopup {
                 popup.dismiss()
                 e.action()
             }
+            PressFeedback.attach(row, 0.97f)
             container.addView(row)
         }
         ripple.recycle()
@@ -89,12 +90,13 @@ object AppPopup {
         if (y < ctx.dp(48)) y = loc[1] + anchor.height + ctx.dp(10)
 
         container.alpha = 0f
-        container.scaleX = 0.85f
-        container.scaleY = 0.85f
-        container.pivotX = w / 2f
+        container.scaleX = 0.8f
+        container.scaleY = 0.8f
+        container.pivotX = (loc[0] + anchor.width / 2f - x).coerceIn(0f, w.toFloat())
         container.pivotY = if (y < loc[1]) h.toFloat() else 0f
         popup.showAtLocation(anchor, Gravity.NO_GRAVITY, x, y)
-        container.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(140).start()
+        Springs.scaleTo(container, 1f, 1f, 0.26f)
+        Springs.alphaTo(container, 1f, 0.2f)
         return popup
     }
 }

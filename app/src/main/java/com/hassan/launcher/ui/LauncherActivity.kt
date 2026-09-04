@@ -157,7 +157,7 @@ class LauncherActivity : AppCompatActivity() {
         override fun onPullEnd(velocityY: Float) {
             if (!pullActive) return
             pullActive = false
-            b.drawer.settle(velocityY)
+            b.drawer.settle(velocityY * 1.7f)
         }
 
         override fun onSwipeDown(fromRight: Boolean) {
@@ -427,6 +427,7 @@ class LauncherActivity : AppCompatActivity() {
             setColor(0x59000000)
             cornerRadius = dp(18).toFloat()
         }
+        PressFeedback.attach(b.searchButton, 0.94f)
         b.defaultBanner.setOnClickListener { requestDefaultLauncher() }
         b.defaultBannerClose.setOnClickListener {
             prefs.hideDefaultBanner = true
@@ -786,6 +787,7 @@ class LauncherActivity : AppCompatActivity() {
         }
         vb.label.text = item.label
         Badges.apply(vb.countBadge, badgeFor(item))
+        PressFeedback.attach(vb.root)
         vb.root.setOnClickListener { onItemClick(item, vb.icon) }
         vb.root.setOnLongClickListener {
             it.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
@@ -846,7 +848,7 @@ class LauncherActivity : AppCompatActivity() {
     private fun onItemClick(item: HomeItem, view: View) {
         when (item) {
             is HomeItem.App -> launch(item.app, view)
-            is HomeItem.Folder -> openFolder(item.id)
+            is HomeItem.Folder -> openFolder(item.id, view)
             is HomeItem.Widget -> Unit
         }
     }
@@ -1559,10 +1561,13 @@ class LauncherActivity : AppCompatActivity() {
         }
     }
 
-    private fun openFolder(id: String) {
+    private var folderAnchor: View? = null
+
+    private fun openFolder(id: String, anchor: View? = null) {
         val f = folders[id] ?: return
         dismissPopup()
         openFolderId = id
+        folderAnchor = anchor ?: folderAnchor
         b.folderName.setText(f.name)
         val items = f.apps.mapNotNull { appsByKey[it] }.map { HomeItem.App(it) as HomeItem }.toMutableList()
         val rowsNeeded = ceil(items.size / 4f).toInt().coerceAtLeast(1)
@@ -1574,10 +1579,30 @@ class LauncherActivity : AppCompatActivity() {
             startDrag(item, DragSource.Folder(id), view, (view.parent as? View) ?: view, 1, 1)
         }, ::badgeFor)
         b.folderOverlay.isVisible = true
+        b.folderOverlay.alpha = 0f
+        b.folderOverlay.animate().alpha(1f).setDuration(160).start()
         b.folderCard.alpha = 0f
-        b.folderCard.scaleX = 0.9f
-        b.folderCard.scaleY = 0.9f
-        b.folderCard.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(160).start()
+        b.folderCard.scaleX = 0.55f
+        b.folderCard.scaleY = 0.55f
+        setBackdropBlur(1f)
+        b.folderCard.post {
+            pivotCardToAnchor()
+            Springs.scaleTo(b.folderCard, 1f, 1f, 0.32f)
+            Springs.alphaTo(b.folderCard, 1f, 0.2f)
+        }
+    }
+
+    // The folder grows out of the icon that opened it and shrinks back into it.
+    private fun pivotCardToAnchor() {
+        val a = folderAnchor ?: return
+        val al = IntArray(2)
+        val cl = IntArray(2)
+        a.getLocationInWindow(al)
+        b.folderCard.getLocationInWindow(cl)
+        val px = al[0] + a.width / 2f - cl[0]
+        val py = al[1] + a.height / 2f - cl[1]
+        b.folderCard.pivotX = px.coerceIn(0f, b.folderCard.width.toFloat())
+        b.folderCard.pivotY = py.coerceIn(-b.folderCard.height.toFloat(), b.folderCard.height * 2f)
     }
 
     private fun closeFolder() {
@@ -1585,7 +1610,13 @@ class LauncherActivity : AppCompatActivity() {
         openFolderId = null
         hideKeyboard()
         b.folderName.clearFocus()
-        b.folderOverlay.isVisible = false
+        setBackdropBlur(0f)
+        pivotCardToAnchor()
+        Springs.scaleTo(b.folderCard, 0.55f, 1f, 0.26f)
+        Springs.alphaTo(b.folderCard, 0f, 0.16f)
+        b.folderOverlay.animate().alpha(0f).setDuration(160).withEndAction {
+            if (openFolderId == null) b.folderOverlay.isVisible = false
+        }.start()
         val f = folders[id] ?: return
         val name = b.folderName.text.toString().trim().ifEmpty { "Folder" }
         if (name != f.name) {
@@ -1599,18 +1630,11 @@ class LauncherActivity : AppCompatActivity() {
 
     private fun setupDrawer() {
         b.drawer.headerHeight = { b.toolbarRow.bottom + dp(8) }
-        b.drawer.onSlide = { f ->
-            b.home.alpha = 1f - f * 0.75f
-            val s = 1f - f * 0.06f
-            b.home.scaleX = s
-            b.home.scaleY = s
-        }
+        b.drawer.onSlide = { f -> setHomeRecede(f) }
         b.drawer.onOpened = { updateStatusBarIcons(true) }
         b.drawer.onClosed = {
             resetDrawer()
-            b.home.alpha = 1f
-            b.home.scaleX = 1f
-            b.home.scaleY = 1f
+            setHomeRecede(0f)
             updateStatusBarIcons(false)
         }
         b.drawerPager.addOnLayoutChangeListener { _, _, top, _, bottom, _, oldTop, _, oldBottom ->
@@ -1736,7 +1760,12 @@ class LauncherActivity : AppCompatActivity() {
             "light" -> false
             else -> isNightMode()
         }
-        val bg = if (drawerDark) 0xF2141414.toInt() else 0xF7FFFFFF.toInt()
+        val bg = when {
+            blurSupported && drawerDark -> 0xB8101010.toInt()
+            blurSupported -> 0xC2FFFFFF.toInt()
+            drawerDark -> 0xF2141414.toInt()
+            else -> 0xF7FFFFFF.toInt()
+        }
         val text = if (drawerDark) 0xFFF2F2F2.toInt() else 0xFF1A1A1A.toInt()
         val sub = if (drawerDark) 0xFF9A9A9A.toInt() else 0xFF6B6B6B.toInt()
         val field = if (drawerDark) 0x16FFFFFF else 0x0F000000
@@ -1894,6 +1923,9 @@ class LauncherActivity : AppCompatActivity() {
         b.searchOverlay.alpha = 0f
         b.searchOverlay.isVisible = true
         b.searchOverlay.animate().alpha(1f).setDuration(160).start()
+        b.searchContent.translationY = dp(24).toFloat()
+        b.searchContent.animate().translationY(0f).setDuration(220).setInterpolator(android.view.animation.DecelerateInterpolator(2f)).start()
+        setBackdropBlur(1f)
         b.globalSearch.requestFocus()
         b.globalSearch.postDelayed({
             getSystemService(InputMethodManager::class.java).showSoftInput(b.globalSearch, InputMethodManager.SHOW_IMPLICIT)
@@ -1908,11 +1940,18 @@ class LauncherActivity : AppCompatActivity() {
         hideKeyboard()
         b.globalSearch.clearFocus()
         b.searchOverlay.animate().alpha(0f).setDuration(140).withEndAction { b.searchOverlay.isVisible = false }.start()
+        b.searchContent.animate().translationY(dp(24).toFloat()).setDuration(160).start()
+        setBackdropBlur(if (b.drawer.isShowing) b.drawer.fraction else 0f)
         updateStatusBarIcons(b.drawer.isOpen)
     }
 
     private fun applySearchTheme() {
-        val bg = if (drawerDark) 0xF0121212.toInt() else 0xF4FFFFFF.toInt()
+        val bg = when {
+            blurSupported && drawerDark -> 0xB3101010.toInt()
+            blurSupported -> 0xBFFFFFFF.toInt()
+            drawerDark -> 0xF0121212.toInt()
+            else -> 0xF4FFFFFF.toInt()
+        }
         val field = if (drawerDark) 0x1AFFFFFF else 0x0F000000
         b.searchOverlay.setBackgroundColor(bg)
         b.globalSearchBox.background = GradientDrawable().apply {
@@ -1980,6 +2019,47 @@ class LauncherActivity : AppCompatActivity() {
             is SearchRow.Permission -> permissionRequest.launch(row.permissions)
             is SearchRow.Header -> Unit
         }
+    }
+
+    // ---------------------------------------------------------------- materials
+
+    private val blurSupported: Boolean by lazy {
+        Build.VERSION.SDK_INT >= 31 && try {
+            windowManager.isCrossWindowBlurEnabled
+        } catch (e: Exception) {
+            false
+        }
+    }
+    private var lastBlur = -1
+
+    private fun setBackdropBlur(fraction: Float) {
+        if (Build.VERSION.SDK_INT < 31) return
+        val radius = (fraction.coerceIn(0f, 1f) * dp(30)).toInt() / 3 * 3
+        if (radius == lastBlur) return
+        lastBlur = radius
+        if (blurSupported) {
+            val lp = window.attributes
+            if (radius > 0) {
+                lp.flags = lp.flags or WindowManager.LayoutParams.FLAG_BLUR_BEHIND
+                lp.blurBehindRadius = radius
+            } else {
+                lp.flags = lp.flags and WindowManager.LayoutParams.FLAG_BLUR_BEHIND.inv()
+                lp.blurBehindRadius = 0
+            }
+            window.attributes = lp
+        }
+        b.home.setRenderEffect(
+            if (radius > 0) android.graphics.RenderEffect.createBlurEffect(radius.toFloat(), radius.toFloat(), android.graphics.Shader.TileMode.CLAMP) else null,
+        )
+    }
+
+    private fun setHomeRecede(f: Float) {
+        val fade = if (Build.VERSION.SDK_INT >= 31) 0.45f else 0.75f
+        b.home.alpha = 1f - f * fade
+        val s = 1f - f * 0.06f
+        b.home.scaleX = s
+        b.home.scaleY = s
+        setBackdropBlur(f)
     }
 
     private fun updateStatusBarIcons(drawerOpen: Boolean) {
@@ -2530,7 +2610,9 @@ class LauncherActivity : AppCompatActivity() {
         dismissPopup()
         if (openFolderId != null) closeFolder()
         overviewOpen = true
-        b.workspace.animate().scaleX(0.8f).scaleY(0.8f).alpha(0f).setDuration(220).start()
+        Springs.scaleTo(b.workspace, 0.8f, 1f, 0.35f)
+        Springs.alphaTo(b.workspace, 0f, 0.25f)
+        setBackdropBlur(1f)
         b.overviewList.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(this, RecyclerView.HORIZONTAL, false)
         val adapter = OverviewAdapter()
         b.overviewList.adapter = adapter
@@ -2548,7 +2630,9 @@ class LauncherActivity : AppCompatActivity() {
         overviewTouchHelper.attachToRecyclerView(null)
         b.overviewOverlay.animate().alpha(0f).setDuration(180).withEndAction { b.overviewOverlay.isVisible = false }.start()
         if (goTo != null && goTo in pages.indices) b.workspace.setCurrentItem(goTo, false)
-        b.workspace.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(220).start()
+        Springs.scaleTo(b.workspace, 1f, 1f, 0.35f)
+        Springs.alphaTo(b.workspace, 1f, 0.25f)
+        setBackdropBlur(0f)
     }
 
     private fun refreshOverview() {

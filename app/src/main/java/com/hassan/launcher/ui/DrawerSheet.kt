@@ -1,20 +1,20 @@
 package com.hassan.launcher.ui
 
-import android.animation.Animator
-import android.animation.AnimatorListenerAdapter
-import android.animation.ValueAnimator
 import android.content.Context
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.VelocityTracker
 import android.view.View
 import android.view.ViewConfiguration
-import android.view.animation.DecelerateInterpolator
 import android.widget.FrameLayout
 import androidx.core.view.NestedScrollingParent3
 import androidx.core.view.NestedScrollingParentHelper
 import androidx.core.view.ViewCompat
+import androidx.dynamicanimation.animation.DynamicAnimation
+import androidx.dynamicanimation.animation.SpringAnimation
+import androidx.dynamicanimation.animation.SpringForce
 import kotlin.math.abs
+import kotlin.math.min
 
 class DrawerSheet(context: Context, attrs: AttributeSet? = null) : FrameLayout(context, attrs), NestedScrollingParent3 {
 
@@ -25,8 +25,8 @@ class DrawerSheet(context: Context, attrs: AttributeSet? = null) : FrameLayout(c
 
     private val helper = NestedScrollingParentHelper(this)
     private val slop = ViewConfiguration.get(context).scaledTouchSlop
-    private var animator: ValueAnimator? = null
     private var settling = false
+    private var settleOpen = false
     private var dragStartedOpen = false
     private var downY = 0f
     private var lastY = 0f
@@ -34,6 +34,24 @@ class DrawerSheet(context: Context, attrs: AttributeSet? = null) : FrameLayout(c
     private var headerTouch = false
     private var velocity: VelocityTracker? = null
     private var initialized = false
+
+    // Critically damped: a sheet that settles without bouncing past its edge.
+    private val spring = SpringAnimation(this, DynamicAnimation.TRANSLATION_Y).apply {
+        spring = SpringForce().setDampingRatio(1f).setStiffness(Springs.stiffness(0.32f))
+        addUpdateListener { _, _, _ -> onSlide?.invoke(fraction) }
+        addEndListener { _, canceled, _, _ ->
+            if (canceled) return@addEndListener
+            settling = false
+            if (settleOpen) {
+                translationY = 0f
+                onOpened?.invoke()
+            } else {
+                translationY = height.toFloat()
+                onClosed?.invoke()
+            }
+            onSlide?.invoke(fraction)
+        }
+    }
 
     init {
         isClickable = true
@@ -55,13 +73,13 @@ class DrawerSheet(context: Context, attrs: AttributeSet? = null) : FrameLayout(c
     }
 
     private fun setPosition(ty: Float) {
-        translationY = ty.coerceIn(0f, height.toFloat())
+        val h = height.toFloat()
+        translationY = if (ty < 0f) -min(Springs.rubberband(-ty, h), context.dp(48).toFloat()) else min(ty, h)
         onSlide?.invoke(fraction)
     }
 
     fun beginDrag() {
-        animator?.cancel()
-        animator = null
+        spring.cancel()
         settling = false
         dragStartedOpen = isOpen
     }
@@ -69,51 +87,47 @@ class DrawerSheet(context: Context, attrs: AttributeSet? = null) : FrameLayout(c
     fun dragBy(dy: Float) = setPosition(translationY + dy)
 
     fun settle(velocityY: Float) {
+        val h = height.toFloat().coerceAtLeast(1f)
+        val projected = translationY + Springs.project(velocityY)
+        val projectedFraction = (1f - projected / h).coerceIn(0f, 1f)
         val open = when {
-            velocityY < -300f -> true
-            velocityY > 300f -> false
-            dragStartedOpen -> fraction > 0.85f
-            else -> fraction > 0.1f
+            abs(velocityY) > 300f -> velocityY < 0f
+            dragStartedOpen -> projectedFraction > 0.85f
+            else -> projectedFraction > 0.1f
         }
-        animateTo(open)
+        animateTo(open, velocityY)
     }
 
     fun open() {
-        if (isOpen && animator == null) {
+        if (isOpen && !settling) {
             onOpened?.invoke()
             return
         }
         dragStartedOpen = false
-        animateTo(true)
+        animateTo(true, 0f)
     }
 
     fun close() {
-        if (!isShowing && animator == null) {
+        if (!isShowing && !settling) {
             onClosed?.invoke()
             return
         }
-        animateTo(false)
+        animateTo(false, 0f)
     }
 
-    private fun animateTo(open: Boolean) {
-        animator?.cancel()
-        settling = true
+    private fun animateTo(open: Boolean, velocityY: Float) {
+        settleOpen = open
         val target = if (open) 0f else height.toFloat()
-        val a = ValueAnimator.ofFloat(translationY, target).apply {
-            duration = (140 + 140 * abs(translationY - target) / height.coerceAtLeast(1)).toLong()
-            interpolator = DecelerateInterpolator(2f)
-            addUpdateListener { setPosition(it.animatedValue as Float) }
-            addListener(object : AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: Animator) {
-                    animator = null
-                    settling = false
-                    setPosition(target)
-                    if (open) onOpened?.invoke() else onClosed?.invoke()
-                }
-            })
+        if (Springs.reducedMotion(context)) {
+            settling = false
+            translationY = target
+            onSlide?.invoke(fraction)
+            if (open) onOpened?.invoke() else onClosed?.invoke()
+            return
         }
-        animator = a
-        a.start()
+        settling = true
+        spring.setStartVelocity(velocityY)
+        spring.animateToFinalPosition(target)
     }
 
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {

@@ -68,7 +68,8 @@
         android:maxLines="1"
         android:paddingStart="4dp"
         android:paddingEnd="4dp"
-        android:textSize="12sp" />
+        android:textSize="12sp"
+        android:letterSpacing="0.01" />
 
     <TextView
         android:id="@+id/sub"

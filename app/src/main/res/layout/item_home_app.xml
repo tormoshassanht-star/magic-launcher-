@@ -57,5 +57,6 @@
         android:shadowDy="1"
         android:shadowRadius="4"
         android:textColor="#FFFFFF"
-        android:textSize="12sp" />
+        android:textSize="12sp"
+        android:letterSpacing="0.01" />
 </LinearLayout>
