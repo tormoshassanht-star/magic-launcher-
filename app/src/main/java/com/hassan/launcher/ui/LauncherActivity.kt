@@ -144,7 +144,7 @@ class LauncherActivity : AppCompatActivity() {
         }
 
         override fun onPull(dy: Float) {
-            if (pullActive) b.drawer.dragBy(dy)
+            if (pullActive) b.drawer.dragBy(dy * 1.7f)
         }
 
         override fun onPullEnd(velocityY: Float) {

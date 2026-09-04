@@ -70,10 +70,10 @@ class DrawerSheet(context: Context, attrs: AttributeSet? = null) : FrameLayout(c
 
     fun settle(velocityY: Float) {
         val open = when {
-            velocityY < -700f -> true
-            velocityY > 700f -> false
-            dragStartedOpen -> fraction > 0.7f
-            else -> fraction > 0.22f
+            velocityY < -300f -> true
+            velocityY > 300f -> false
+            dragStartedOpen -> fraction > 0.85f
+            else -> fraction > 0.1f
         }
         animateTo(open)
     }
@@ -100,8 +100,8 @@ class DrawerSheet(context: Context, attrs: AttributeSet? = null) : FrameLayout(c
         settling = true
         val target = if (open) 0f else height.toFloat()
         val a = ValueAnimator.ofFloat(translationY, target).apply {
-            duration = (180 + 160 * abs(translationY - target) / height.coerceAtLeast(1)).toLong()
-            interpolator = DecelerateInterpolator(1.6f)
+            duration = (140 + 140 * abs(translationY - target) / height.coerceAtLeast(1)).toLong()
+            interpolator = DecelerateInterpolator(2f)
             addUpdateListener { setPosition(it.animatedValue as Float) }
             addListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
