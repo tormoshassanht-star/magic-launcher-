@@ -19,7 +19,7 @@ class Prefs(context: Context) {
     val iconShape get() = sp.getString("icon_shape", "rounded")!!
     val iconSize get() = sp.getInt("icon_size", 100)
     val showHomeLabels get() = sp.getBoolean("home_labels", true)
-    val showClock get() = sp.getBoolean("show_clock", true)
+    val showClock get() = sp.getBoolean("show_clock", false)
     val dockEnabled get() = sp.getBoolean("dock_enabled", true)
     val newBadge get() = sp.getBoolean("new_badge", true)
     val doubleTapLock get() = sp.getBoolean("double_tap_lock", true)

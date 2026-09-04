@@ -92,6 +92,7 @@ class LauncherActivity : AppCompatActivity() {
     private lateinit var prefs: Prefs
     private var pullActive = false
     private var workspaceLocked = false
+    private var statusBarTop = 0
     private lateinit var drawerAdapter: DrawerAdapter
     private lateinit var host: LauncherWidgetHost
     private var hostListening = false
@@ -400,7 +401,8 @@ class LauncherActivity : AppCompatActivity() {
             val sb = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
             val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
             b.header.updatePadding(top = sb.top + dp(6))
-            b.homeColumn.updatePadding(bottom = sb.bottom)
+            statusBarTop = sb.top
+            b.homeColumn.updatePadding(top = if (prefs.showClock) 0 else sb.top + dp(10), bottom = sb.bottom)
             b.removeZone.updateLayoutParams<ViewGroup.MarginLayoutParams> { topMargin = sb.top + dp(10) }
             b.drawerContent.updatePadding(top = sb.top, bottom = max(sb.bottom, ime.bottom))
             b.folderOverlay.updatePadding(top = sb.top, bottom = max(sb.bottom, ime.bottom))
@@ -671,6 +673,7 @@ class LauncherActivity : AppCompatActivity() {
         if (pageHeight == 0 || apps.isEmpty()) return
         if (normalizeLayout()) saveLayout()
         b.header.isVisible = prefs.showClock
+        b.homeColumn.updatePadding(top = if (prefs.showClock) 0 else statusBarTop + dp(10))
         b.searchButton.isVisible = prefs.searchStyle == "button"
         b.searchBar.isVisible = prefs.searchStyle == "bar"
         updateDefaultBanner()
