@@ -56,7 +56,6 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.widget.ViewPager2
-import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.hassan.launcher.R
 import com.hassan.launcher.data.AppRepository
@@ -91,7 +90,7 @@ class LauncherActivity : AppCompatActivity() {
 
     private lateinit var b: ActivityLauncherBinding
     private lateinit var prefs: Prefs
-    private lateinit var behavior: BottomSheetBehavior<View>
+    private var pullActive = false
     private lateinit var drawerAdapter: DrawerAdapter
     private lateinit var host: AppWidgetHost
     private lateinit var awm: AppWidgetManager
@@ -136,8 +135,22 @@ class LauncherActivity : AppCompatActivity() {
     private var openFolderId: String? = null
 
     private val gestureHost = object : HomeGestures.Host {
-        override fun onSwipeUp() {
-            if (currentDrag == null) openDrawer()
+        override fun onPullStart(): Boolean {
+            if (currentDrag != null || overviewOpen || openFolderId != null) return false
+            dismissPopup()
+            pullActive = true
+            b.drawer.beginDrag()
+            return true
+        }
+
+        override fun onPull(dy: Float) {
+            if (pullActive) b.drawer.dragBy(dy)
+        }
+
+        override fun onPullEnd(velocityY: Float) {
+            if (!pullActive) return
+            pullActive = false
+            b.drawer.settle(velocityY)
         }
 
         override fun onSwipeDown(fromRight: Boolean) {
@@ -261,7 +274,7 @@ class LauncherActivity : AppCompatActivity() {
         when {
             overviewOpen -> closeOverview()
             openFolderId != null -> closeFolder()
-            behavior.state != BottomSheetBehavior.STATE_HIDDEN -> closeDrawer()
+            b.drawer.isShowing -> closeDrawer()
             else -> b.workspace.setCurrentItem(homePageIndex(), true)
         }
     }
@@ -289,7 +302,7 @@ class LauncherActivity : AppCompatActivity() {
             closeFolder()
             return
         }
-        if (behavior.state != BottomSheetBehavior.STATE_HIDDEN) {
+        if (b.drawer.isShowing) {
             when {
                 drawerState.selectionMode -> setSelectionMode(false)
                 query.isNotEmpty() -> b.searchInput.setText("")
@@ -600,11 +613,16 @@ class LauncherActivity : AppCompatActivity() {
                 }
             }
             val size = if (i == current) dp(8) else dp(6)
-            b.indicator.addView(dot, LinearLayout.LayoutParams(size, size).apply {
-                marginStart = dp(4)
-                marginEnd = dp(4)
-            })
+            b.indicator.addView(tappableDot(dot, size) { b.workspace.setCurrentItem(i, true) })
         }
+    }
+
+    private fun tappableDot(dot: View, size: Int, onTap: () -> Unit): View {
+        val wrap = android.widget.FrameLayout(this)
+        wrap.addView(dot, android.widget.FrameLayout.LayoutParams(size, size, Gravity.CENTER))
+        wrap.layoutParams = LinearLayout.LayoutParams(dp(18), dp(24))
+        wrap.setOnClickListener { onTap() }
+        return wrap
     }
 
     private fun updateDate() {
@@ -952,7 +970,7 @@ class LauncherActivity : AppCompatActivity() {
             when (e.action) {
                 DragEvent.ACTION_DRAG_STARTED -> true
                 DragEvent.ACTION_DRAG_LOCATION -> {
-                    if (trackDragMove(v, e.x, e.y) && !drawerClosedForDrag && behavior.state != BottomSheetBehavior.STATE_HIDDEN) {
+                    if (trackDragMove(v, e.x, e.y) && !drawerClosedForDrag && b.drawer.isShowing) {
                         drawerClosedForDrag = true
                         closeDrawer()
                     }
@@ -1282,6 +1300,32 @@ class LauncherActivity : AppCompatActivity() {
             false
         }
         b.folderGrid.layoutManager = GridLayoutManager(this, 4)
+        b.folderAddBtn.setOnClickListener {
+            val id = openFolderId ?: return@setOnClickListener
+            val f = folders[id] ?: return@setOnClickListener
+            AppPicker.show(this, apps, "Apps in ${f.name}", f.apps, FOLDER_CAPACITY) { chosen ->
+                val kept = f.apps.filter { it in chosen }
+                val added = chosen.filter { it !in kept }
+                f.apps.clear()
+                f.apps.addAll(kept + added)
+                normalizeLayout()
+                saveLayout()
+                refreshHome()
+                if (folders.containsKey(id)) openFolder(id) else closeFolder()
+            }
+        }
+    }
+
+    private fun pickDockApps() {
+        val dockFolders = dock.filter { HomeItem.isFolderKey(it) }
+        val room = (5 - dockFolders.size).coerceAtLeast(0)
+        AppPicker.show(this, apps, "Apps in the dock", dock.filter { !HomeItem.isFolderKey(it) }, room) { chosen ->
+            val newDock = ArrayList<String>()
+            for (k in dock) if (HomeItem.isFolderKey(k) || k in chosen) newDock += k
+            for (k in chosen) if (k !in newDock) newDock += k
+            dock = newDock.take(5).toMutableList()
+            commitLayout()
+        }
     }
 
     private fun openFolder(id: String) {
@@ -1323,34 +1367,26 @@ class LauncherActivity : AppCompatActivity() {
     // ---------------------------------------------------------------- drawer
 
     private fun setupDrawer() {
-        behavior = BottomSheetBehavior.from(b.drawer)
-        behavior.isHideable = true
-        behavior.skipCollapsed = true
-        behavior.peekHeight = 0
-        behavior.isFitToContents = true
-        behavior.state = BottomSheetBehavior.STATE_HIDDEN
-        behavior.addBottomSheetCallback(object : BottomSheetBehavior.BottomSheetCallback() {
-            override fun onStateChanged(bottomSheet: View, newState: Int) {
-                when (newState) {
-                    BottomSheetBehavior.STATE_HIDDEN -> {
-                        resetDrawer()
-                        b.home.alpha = 1f
-                        b.home.scaleX = 1f
-                        b.home.scaleY = 1f
-                        updateStatusBarIcons(false)
-                    }
-                    BottomSheetBehavior.STATE_EXPANDED -> updateStatusBarIcons(true)
-                }
+        b.drawer.headerHeight = { b.toolbarRow.bottom + dp(8) }
+        b.drawer.onSlide = { f ->
+            b.home.alpha = 1f - f * 0.75f
+            val s = 1f - f * 0.06f
+            b.home.scaleX = s
+            b.home.scaleY = s
+        }
+        b.drawer.onOpened = { updateStatusBarIcons(true) }
+        b.drawer.onClosed = {
+            resetDrawer()
+            b.home.alpha = 1f
+            b.home.scaleX = 1f
+            b.home.scaleY = 1f
+            updateStatusBarIcons(false)
+        }
+        b.drawerPager.addOnLayoutChangeListener { _, _, top, _, bottom, _, oldTop, _, oldBottom ->
+            if (bottom - top != oldBottom - oldTop && drawerPages.isNotEmpty()) {
+                b.drawerPager.post { b.drawerPager.adapter?.notifyDataSetChanged() }
             }
-
-            override fun onSlide(bottomSheet: View, slideOffset: Float) {
-                val visible = (1f - bottomSheet.top / b.root.height.toFloat()).coerceIn(0f, 1f)
-                b.home.alpha = 1f - visible * 0.75f
-                val s = 1f - visible * 0.06f
-                b.home.scaleX = s
-                b.home.scaleY = s
-            }
-        })
+        }
 
         drawerState.onClick = ::launch
         drawerState.onLongClick = ::showDrawerAppPopup
@@ -1496,7 +1532,7 @@ class LauncherActivity : AppCompatActivity() {
         drawerState.subColor = sub
         refreshDrawerViews()
         updateDrawerDots(b.drawerPager.currentItem)
-        updateStatusBarIcons(behavior.state == BottomSheetBehavior.STATE_EXPANDED)
+        updateStatusBarIcons(b.drawer.isOpen)
     }
 
     private fun refreshDrawerViews() {
@@ -1536,7 +1572,8 @@ class LauncherActivity : AppCompatActivity() {
         }
 
         override fun onBindViewHolder(holder: VH, position: Int) {
-            val adapter = DrawerAdapter(drawerState, prefs.rows)
+            val cell = if (b.drawerPager.height > 0) (b.drawerPager.height - dp(4)) / prefs.rows else 0
+            val adapter = DrawerAdapter(drawerState, cell)
             adapter.submit(drawerPages[position])
             holder.rv.adapter = adapter
         }
@@ -1558,10 +1595,7 @@ class LauncherActivity : AppCompatActivity() {
                 }
             }
             val size = if (i == current) dp(7) else dp(5)
-            b.drawerDots.addView(dot, LinearLayout.LayoutParams(size, size).apply {
-                marginStart = dp(4)
-                marginEnd = dp(4)
-            })
+            b.drawerDots.addView(tappableDot(dot, size) { b.drawerPager.setCurrentItem(i, true) })
         }
     }
 
@@ -1619,7 +1653,7 @@ class LauncherActivity : AppCompatActivity() {
     private fun openDrawer(focusSearch: Boolean = false) {
         dismissPopup()
         if (openFolderId != null) closeFolder()
-        behavior.state = BottomSheetBehavior.STATE_EXPANDED
+        b.drawer.open()
         if (focusSearch) {
             b.searchInput.postDelayed({
                 b.searchInput.requestFocus()
@@ -1630,7 +1664,7 @@ class LauncherActivity : AppCompatActivity() {
 
     private fun closeDrawer() {
         hideKeyboard()
-        behavior.state = BottomSheetBehavior.STATE_HIDDEN
+        b.drawer.close()
     }
 
     private fun hideKeyboard() {
@@ -1823,7 +1857,9 @@ class LauncherActivity : AppCompatActivity() {
         }
         var idx = -1
         var pos: Pair<Int, Int>? = null
-        for (i in pages.indices) {
+        val order = listOf(b.workspace.currentItem) + pages.indices.filter { it != b.workspace.currentItem }
+        for (i in order) {
+            if (i !in pages.indices) continue
             pos = findVacant(occupancy(pages[i], null), 1, 1)
             if (pos != null) {
                 idx = i
@@ -1850,7 +1886,7 @@ class LauncherActivity : AppCompatActivity() {
     private fun showHomeOptions() {
         dismissPopup()
         val current = b.workspace.currentItem
-        val items = mutableListOf("Add widget", "Manage pages", "Change wallpaper", "Launcher settings", "All apps", "Add page", "Put all apps on Home")
+        val items = mutableListOf("Add widget", "Apps in the dock", "Manage pages", "Change wallpaper", "Launcher settings", "All apps", "Add page", "Put all apps on Home")
         if (!LayoutPreset.isEmpty(this)) items += "Apply my Honor layout"
         if (pages.size > 1) items += "Remove this page"
         if (!isDefaultLauncher()) items += "Set as default launcher"
@@ -1859,6 +1895,7 @@ class LauncherActivity : AppCompatActivity() {
             .setItems(items.toTypedArray()) { _, i ->
                 when (items[i]) {
                     "Add widget" -> pickWidget()
+                    "Apps in the dock" -> pickDockApps()
                     "Manage pages" -> openOverview()
                     "Change wallpaper" -> startActivity(Intent.createChooser(Intent(Intent.ACTION_SET_WALLPAPER), "Choose wallpaper"))
                     "Launcher settings" -> startActivity(Intent(this, SettingsActivity::class.java))

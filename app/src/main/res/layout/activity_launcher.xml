@@ -238,25 +238,47 @@
             android:paddingEnd="8dp"
             android:paddingBottom="12dp">
 
-            <EditText
-                android:id="@+id/folderName"
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:background="@null"
-                android:fontFamily="sans-serif-medium"
-                android:gravity="center"
-                android:hint="Folder name"
-                android:imeOptions="actionDone"
-                android:importantForAutofill="no"
-                android:inputType="textCapWords"
-                android:maxLines="1"
-                android:paddingStart="16dp"
-                android:paddingTop="6dp"
-                android:paddingEnd="16dp"
-                android:paddingBottom="10dp"
-                android:textColor="#FFFFFF"
-                android:textColorHint="#99FFFFFF"
-                android:textSize="18sp" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <View
+                    android:layout_width="40dp"
+                    android:layout_height="1dp" />
+
+                <EditText
+                    android:id="@+id/folderName"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:background="@null"
+                    android:fontFamily="sans-serif-medium"
+                    android:gravity="center"
+                    android:hint="Folder name"
+                    android:imeOptions="actionDone"
+                    android:importantForAutofill="no"
+                    android:inputType="textCapWords"
+                    android:maxLines="1"
+                    android:paddingStart="8dp"
+                    android:paddingTop="6dp"
+                    android:paddingEnd="8dp"
+                    android:paddingBottom="10dp"
+                    android:textColor="#FFFFFF"
+                    android:textColorHint="#99FFFFFF"
+                    android:textSize="18sp" />
+
+                <ImageView
+                    android:id="@+id/folderAddBtn"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Add apps"
+                    android:padding="8dp"
+                    android:src="@drawable/ic_add"
+                    app:tint="#FFFFFF" />
+            </LinearLayout>
 
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/folderGrid"
@@ -266,11 +288,10 @@
         </LinearLayout>
     </FrameLayout>
 
-    <FrameLayout
+    <com.hassan.launcher.ui.DrawerSheet
         android:id="@+id/drawer"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        app:layout_behavior="com.google.android.material.bottomsheet.BottomSheetBehavior">
+        android:layout_height="match_parent">
 
         <LinearLayout
             android:id="@+id/drawerContent"
@@ -490,5 +511,5 @@
                     app:tint="#FFFFFF" />
             </LinearLayout>
         </LinearLayout>
-    </FrameLayout>
+    </com.hassan.launcher.ui.DrawerSheet>
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

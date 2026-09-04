@@ -27,7 +27,7 @@ class DrawerState {
     var onSelectionChanged: () -> Unit = {}
 }
 
-class DrawerAdapter(private val state: DrawerState, private val rowsPerPage: Int = 0) :
+class DrawerAdapter(private val state: DrawerState, private val cellHeight: Int = 0) :
     RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     var items: List<DrawerItem> = emptyList()
@@ -70,11 +70,14 @@ class DrawerAdapter(private val state: DrawerState, private val rowsPerPage: Int
         return when (viewType) {
             0 -> HeaderVH(ItemDrawerHeaderBinding.inflate(inf, parent, false))
             1 -> AppVH(ItemDrawerAppBinding.inflate(inf, parent, false)).also { vh ->
-                val s = IconCache.sizePx
-                vh.b.icon.layoutParams = vh.b.icon.layoutParams.apply { width = s; height = s }
-                if (rowsPerPage > 0 && parent.height > 0) {
-                    vh.b.root.layoutParams = vh.b.root.layoutParams.apply { height = parent.height / rowsPerPage }
+                var s = IconCache.sizePx
+                if (cellHeight > 0) {
+                    val ctx = parent.context
+                    vh.b.root.layoutParams = vh.b.root.layoutParams.apply { height = cellHeight }
+                    vh.b.root.setPadding(0, ctx.dp(2), 0, ctx.dp(2))
+                    s = minOf(s, cellHeight - ctx.dp(36)).coerceAtLeast(ctx.dp(28))
                 }
+                vh.b.icon.layoutParams = vh.b.icon.layoutParams.apply { width = s; height = s }
             }
             else -> ActionVH(ItemDrawerActionBinding.inflate(inf, parent, false))
         }
@@ -106,7 +109,7 @@ class DrawerAdapter(private val state: DrawerState, private val rowsPerPage: Int
         vh.b.label.text = app.label
         vh.b.label.setTextColor(state.textColor)
         vh.b.sub.text = item.sub
-        vh.b.sub.isVisible = item.sub != null
+        vh.b.sub.isVisible = item.sub != null && cellHeight == 0
         vh.b.sub.setTextColor(state.subColor)
         vh.b.badge.isVisible = state.showNewBadge && System.currentTimeMillis() - app.installTime < newWindowMs
         val isSelected = state.selectionMode && app.key in state.selected
