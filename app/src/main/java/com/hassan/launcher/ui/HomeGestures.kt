@@ -20,6 +20,7 @@ class HomeGestures(
         fun onPull(dy: Float)
         fun onPullEnd(velocityY: Float)
         fun onSwipeDown(fromRight: Boolean)
+        fun onGestureEnd()
         fun onDoubleTapEmpty()
         fun onLongPressEmpty()
         fun onPinchIn()
@@ -133,12 +134,14 @@ class HomeGestures(
                 pulling = false
                 velocity?.recycle()
                 velocity = null
+                host.onGestureEnd()
             }
             MotionEvent.ACTION_CANCEL -> {
                 if (pulling) host.onPullEnd(0f)
                 pulling = false
                 velocity?.recycle()
                 velocity = null
+                host.onGestureEnd()
             }
         }
         if (!pulling) {

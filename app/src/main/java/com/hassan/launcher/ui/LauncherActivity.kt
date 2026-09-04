@@ -91,6 +91,7 @@ class LauncherActivity : AppCompatActivity() {
     private lateinit var b: ActivityLauncherBinding
     private lateinit var prefs: Prefs
     private var pullActive = false
+    private var workspaceLocked = false
     private lateinit var drawerAdapter: DrawerAdapter
     private lateinit var host: LauncherWidgetHost
     private var hostListening = false
@@ -160,7 +161,16 @@ class LauncherActivity : AppCompatActivity() {
 
         override fun onSwipeDown(fromRight: Boolean) {
             if (currentDrag != null || !prefs.swipeDownNotifications) return
+            b.workspace.isUserInputEnabled = false
+            workspaceLocked = true
             if (fromRight) openQuickSettings() else openNotifications()
+        }
+
+        override fun onGestureEnd() {
+            if (!workspaceLocked) return
+            workspaceLocked = false
+            b.workspace.isUserInputEnabled = resizing == null
+            b.workspace.setCurrentItem(b.workspace.currentItem, true)
         }
 
         override fun onDoubleTapEmpty() {
