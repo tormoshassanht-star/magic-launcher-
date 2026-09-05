@@ -80,7 +80,6 @@ class DrawerAdapter(private val state: DrawerState, private val cellHeight: Int 
                     s = minOf(s, cellHeight - ctx.dp(36)).coerceAtLeast(ctx.dp(28))
                 }
                 vh.b.icon.layoutParams = vh.b.icon.layoutParams.apply { width = s; height = s }
-                PressFeedback.attach(vh.b.root)
             }
             else -> ActionVH(ItemDrawerActionBinding.inflate(inf, parent, false))
         }

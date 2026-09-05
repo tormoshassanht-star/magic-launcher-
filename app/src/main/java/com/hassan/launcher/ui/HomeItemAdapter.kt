@@ -31,7 +31,6 @@ class HomeItemAdapter(
             b.root.gravity = Gravity.CENTER
             b.root.setPadding(0, 0, 0, 0)
         }
-        PressFeedback.attach(b.root)
         return VH(b)
     }
 

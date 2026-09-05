@@ -11,8 +11,8 @@ android {
         applicationId = "com.hassan.launcher"
         minSdk = 26
         targetSdk = 35
-        versionCode = 14
-        versionName = "1.7.2"
+        versionCode = 15
+        versionName = "1.8"
     }
 
     buildTypes {
@@ -42,6 +42,5 @@ dependencies {
     implementation("androidx.viewpager2:viewpager2:1.1.0")
     implementation("androidx.preference:preference-ktx:1.2.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
-    implementation("androidx.dynamicanimation:dynamicanimation:1.0.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 }
