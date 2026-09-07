@@ -64,6 +64,8 @@ import com.hassan.launcher.data.HomeCell
 import com.hassan.launcher.data.IconCache
 import com.hassan.launcher.data.LayoutPreset
 import com.hassan.launcher.data.Prefs
+import com.hassan.launcher.data.UpdateInfo
+import com.hassan.launcher.data.Updater
 import com.hassan.launcher.databinding.ActivityLauncherBinding
 import com.hassan.launcher.databinding.ItemHomeAppBinding
 import com.hassan.launcher.model.AppInfo
@@ -339,10 +341,13 @@ class LauncherActivity : AppCompatActivity() {
             rebuildHome()
         }
         if (!prefs.hasLayout && apps.isNotEmpty()) onApps(apps) else refreshDrawer()
+        checkForUpdate(force = intent?.getBooleanExtra("check_update", false) == true)
+        intent?.removeExtra("check_update")
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        setIntent(intent)
         dismissPopup()
         when {
             searchOpen -> closeSearch()
@@ -431,6 +436,11 @@ class LauncherActivity : AppCompatActivity() {
         b.defaultBannerClose.setOnClickListener {
             prefs.hideDefaultBanner = true
             b.defaultBanner.isVisible = false
+        }
+        b.updateBanner.setOnClickListener { startUpdate() }
+        b.updateBannerClose.setOnClickListener {
+            pendingUpdate?.let { prefs.skippedUpdate = it.version }
+            b.updateBanner.isVisible = false
         }
         b.mic.setOnClickListener {
             try {
@@ -2387,6 +2397,47 @@ class LauncherActivity : AppCompatActivity() {
             PackageManager.MATCH_DEFAULT_ONLY,
         )
         return ri?.activityInfo?.packageName == packageName
+    }
+
+    private var pendingUpdate: UpdateInfo? = null
+    private var downloading = false
+
+    private fun checkForUpdate(force: Boolean = false) {
+        val now = System.currentTimeMillis()
+        if (!force && now - prefs.lastUpdateCheck < 6 * 60 * 60 * 1000L) return
+        prefs.lastUpdateCheck = now
+        lifecycleScope.launch {
+            val info = Updater.check() ?: return@launch
+            if (!force && info.version == prefs.skippedUpdate) return@launch
+            pendingUpdate = info
+            b.updateText.text = "Magic Launcher ${info.version} is ready. Tap to update."
+            b.updateBanner.isVisible = true
+        }
+    }
+
+    private fun startUpdate() {
+        val info = pendingUpdate ?: return
+        if (downloading) return
+        if (!packageManager.canRequestPackageInstalls()) {
+            MaterialAlertDialogBuilder(this)
+                .setTitle("Allow updates")
+                .setMessage("Android needs your permission once to let Magic Launcher install its own updates.")
+                .setNegativeButton("Later", null)
+                .setPositiveButton("Allow") { _, _ -> startActivity(Updater.unknownSourcesIntent(this)) }
+                .show()
+            return
+        }
+        downloading = true
+        lifecycleScope.launch {
+            val file = Updater.download(this@LauncherActivity, info) { b.updateText.text = "Downloading ${info.version}… $it%" }
+            downloading = false
+            if (file == null) {
+                b.updateText.text = "Download failed. Tap to retry."
+                return@launch
+            }
+            b.updateText.text = "Installing ${info.version}…"
+            Updater.install(this@LauncherActivity, file)
+        }
     }
 
     private fun updateDefaultBanner() {

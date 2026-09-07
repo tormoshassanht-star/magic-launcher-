@@ -30,6 +30,14 @@ class Prefs(context: Context) {
     val searchTarget get() = sp.getString("search_target", "system")!!
     val badges get() = sp.getBoolean("badges", true)
 
+    var lastUpdateCheck: Long
+        get() = sp.getLong("last_update_check", 0L)
+        set(v) = sp.edit().putLong("last_update_check", v).apply()
+
+    var skippedUpdate: String
+        get() = sp.getString("skipped_update", "")!!
+        set(v) = sp.edit().putString("skipped_update", v).apply()
+
     var hideDefaultBanner: Boolean
         get() = sp.getBoolean("hide_default_banner", false)
         set(v) = sp.edit().putBoolean("hide_default_banner", v).apply()

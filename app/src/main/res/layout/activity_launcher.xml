@@ -68,6 +68,49 @@
                 android:orientation="horizontal" />
 
             <LinearLayout
+                android:id="@+id/updateBanner"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="20dp"
+                android:layout_marginEnd="20dp"
+                android:layout_marginBottom="8dp"
+                android:background="@drawable/bg_search_pill"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="16dp"
+                android:paddingTop="10dp"
+                android:paddingEnd="8dp"
+                android:paddingBottom="10dp"
+                android:visibility="gone">
+
+                <ImageView
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_store"
+                    app:tint="@color/accent" />
+
+                <TextView
+                    android:id="@+id/updateText"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:layout_weight="1"
+                    android:textColor="#1A1A1A"
+                    android:textSize="13sp" />
+
+                <ImageView
+                    android:id="@+id/updateBannerClose"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Dismiss"
+                    android:padding="7dp"
+                    android:src="@drawable/ic_close"
+                    app:tint="#5F6368" />
+            </LinearLayout>
+
+            <LinearLayout
                 android:id="@+id/defaultBanner"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

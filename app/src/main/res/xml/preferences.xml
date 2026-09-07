@@ -146,6 +146,10 @@
             app:key="wallpaper"
             app:title="Change wallpaper" />
         <Preference
+            app:key="check_update"
+            app:summary="Downloads the newest release from GitHub and installs it"
+            app:title="Check for updates" />
+        <Preference
             app:key="about"
             app:summary="Magic Launcher 1.0"
             app:title="About" />

@@ -10,6 +10,9 @@ import androidx.preference.PreferenceFragmentCompat
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.hassan.launcher.R
 import com.hassan.launcher.data.Prefs
+import com.hassan.launcher.data.Updater
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 
 class SettingsActivity : AppCompatActivity() {
 
@@ -66,6 +69,23 @@ class SettingsActivity : AppCompatActivity() {
                         Toast.makeText(requireContext(), "Home layout reset", Toast.LENGTH_SHORT).show()
                     }
                     .show()
+            }
+            click("check_update") {
+                Toast.makeText(requireContext(), "Checking…", Toast.LENGTH_SHORT).show()
+                viewLifecycleOwner.lifecycleScope.launch {
+                    val info = Updater.check()
+                    if (info == null) {
+                        Toast.makeText(requireContext(), "You have the latest version", Toast.LENGTH_SHORT).show()
+                        return@launch
+                    }
+                    Prefs(requireContext()).skippedUpdate = ""
+                    startActivity(
+                        Intent(requireContext(), LauncherActivity::class.java)
+                            .putExtra("check_update", true)
+                            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP),
+                    )
+                    requireActivity().finish()
+                }
             }
             click("about") {
                 MaterialAlertDialogBuilder(requireContext())
