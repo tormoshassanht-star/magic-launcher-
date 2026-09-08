@@ -87,13 +87,39 @@ object Updater {
         }
     }
 
+    // Session installs are treated like store installs, so Android 13+ doesn't lock
+    // accessibility and notification access behind "restricted settings" afterwards.
     fun install(context: Context, file: File) {
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
-        context.startActivity(
-            Intent(Intent.ACTION_VIEW)
-                .setDataAndType(uri, "application/vnd.android.package-archive")
-                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK),
-        )
+        try {
+            val installer = context.packageManager.packageInstaller
+            val params = android.content.pm.PackageInstaller.SessionParams(
+                android.content.pm.PackageInstaller.SessionParams.MODE_FULL_INSTALL,
+            )
+            if (android.os.Build.VERSION.SDK_INT >= 33) {
+                params.setPackageSource(android.content.pm.PackageInstaller.PACKAGE_SOURCE_STORE)
+            }
+            if (android.os.Build.VERSION.SDK_INT >= 31) params.setRequireUserAction(android.content.pm.PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
+            val id = installer.createSession(params)
+            installer.openSession(id).use { session ->
+                session.openWrite("update.apk", 0, file.length()).use { out ->
+                    file.inputStream().use { it.copyTo(out) }
+                    session.fsync(out)
+                }
+                val intent = Intent(context, com.hassan.launcher.service.InstallReceiver::class.java).setAction("com.hassan.launcher.INSTALL")
+                val pi = android.app.PendingIntent.getBroadcast(
+                    context, id, intent,
+                    android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_MUTABLE,
+                )
+                session.commit(pi.intentSender)
+            }
+        } catch (e: Exception) {
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+            context.startActivity(
+                Intent(Intent.ACTION_VIEW)
+                    .setDataAndType(uri, "application/vnd.android.package-archive")
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }
     }
 
     fun unknownSourcesIntent(context: Context): Intent =

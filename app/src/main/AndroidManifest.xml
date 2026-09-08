@@ -66,6 +66,10 @@
             android:label="@string/hidden_apps"
             android:theme="@style/Theme.Launcher.Settings" />
 
+        <receiver
+            android:name=".service.InstallReceiver"
+            android:exported="false" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.files"
