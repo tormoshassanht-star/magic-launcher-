@@ -70,6 +70,7 @@ import com.hassan.launcher.databinding.ActivityLauncherBinding
 import com.hassan.launcher.databinding.ItemHomeAppBinding
 import com.hassan.launcher.model.AppInfo
 import com.hassan.launcher.service.GestureAccessibilityService
+import com.hassan.launcher.service.LockAdminReceiver
 import com.hassan.launcher.service.NotificationBadgeService
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -2616,12 +2617,24 @@ class LauncherActivity : AppCompatActivity() {
     }
 
     private fun lockScreen() {
+        if (LockAdminReceiver.lock(this)) return
         val svc = GestureAccessibilityService.instance
         if (svc != null) {
             if (!svc.lockScreen()) toast("Lock screen needs Android 9 or newer")
-        } else {
-            promptAccessibility("Double tap to lock")
+            return
         }
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Double tap to lock")
+            .setMessage("Locking the screen needs the screen-lock permission. It only lets Magic Launcher turn the screen off, and it doesn't trip banking apps the way an accessibility service does.")
+            .setNegativeButton("Not now", null)
+            .setPositiveButton("Allow") { _, _ ->
+                startActivity(
+                    Intent(android.app.admin.DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN)
+                        .putExtra(android.app.admin.DevicePolicyManager.EXTRA_DEVICE_ADMIN, LockAdminReceiver.component(this))
+                        .putExtra(android.app.admin.DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Used only for double tap to lock the screen."),
+                )
+            }
+            .show()
     }
 
     private fun openNotifications() {
@@ -2808,7 +2821,7 @@ class LauncherActivity : AppCompatActivity() {
     private fun promptAccessibility(feature: String) {
         MaterialAlertDialogBuilder(this)
             .setTitle(feature)
-            .setMessage("This gesture needs Magic Launcher's accessibility service. Enable it under Installed apps › Magic Launcher. It doesn't read your screen.")
+            .setMessage("This gesture needs Magic Launcher's accessibility service. Enable it under Installed apps › Magic Launcher. It doesn't read your screen, but some banking apps refuse to show card details while any accessibility service is on.")
             .setNegativeButton("Not now", null)
             .setPositiveButton("Open settings") { _, _ -> startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
             .show()

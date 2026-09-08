@@ -125,9 +125,13 @@
             app:key="swipe_down_notifications"
             app:title="Swipe down for notifications" />
         <Preference
+            app:key="lock_permission"
+            app:summary="Lets double tap lock the screen without an accessibility service"
+            app:title="Screen lock permission" />
+        <Preference
             app:key="accessibility"
-            app:summary="Lock screen and notification gestures need the accessibility service"
-            app:title="Enable gesture service" />
+            app:summary="Needed only for swipe down to open notifications. Banking apps may hide card details while it is on."
+            app:title="Gesture service (accessibility)" />
     </PreferenceCategory>
 
     <PreferenceCategory app:title="System">

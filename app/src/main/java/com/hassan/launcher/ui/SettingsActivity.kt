@@ -37,6 +37,22 @@ class SettingsActivity : AppCompatActivity() {
 
             click("hidden_apps") { startActivity(Intent(requireContext(), HiddenAppsActivity::class.java)) }
             click("accessibility") { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+            click("lock_permission") {
+                val ctx = requireContext()
+                if (com.hassan.launcher.service.LockAdminReceiver.isActive(ctx)) {
+                    MaterialAlertDialogBuilder(ctx)
+                        .setTitle("Screen lock permission is on")
+                        .setNegativeButton("Keep", null)
+                        .setPositiveButton("Turn off") { _, _ -> com.hassan.launcher.service.LockAdminReceiver.remove(ctx) }
+                        .show()
+                } else {
+                    startActivity(
+                        Intent(android.app.admin.DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN)
+                            .putExtra(android.app.admin.DevicePolicyManager.EXTRA_DEVICE_ADMIN, com.hassan.launcher.service.LockAdminReceiver.component(ctx))
+                            .putExtra(android.app.admin.DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Used only for double tap to lock the screen."),
+                    )
+                }
+            }
             click("notification_access") { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
             click("battery") {
                 MaterialAlertDialogBuilder(requireContext())
