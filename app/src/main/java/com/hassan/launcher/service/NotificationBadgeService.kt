@@ -14,13 +14,27 @@ class NotificationBadgeService : NotificationListenerService() {
         private val _counts = MutableStateFlow<Map<String, Int>>(emptyMap())
         val counts: StateFlow<Map<String, Int>> = _counts
 
+        @Volatile var connected = false
+
         fun isEnabled(context: Context): Boolean =
             NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
+
+        fun rebind(context: Context) {
+            if (!isEnabled(context) || connected) return
+            try {
+                requestRebind(android.content.ComponentName(context, NotificationBadgeService::class.java))
+            } catch (e: Exception) {
+            }
+        }
     }
 
-    override fun onListenerConnected() = recompute()
+    override fun onListenerConnected() {
+        connected = true
+        recompute()
+    }
 
     override fun onListenerDisconnected() {
+        connected = false
         _counts.value = emptyMap()
     }
 

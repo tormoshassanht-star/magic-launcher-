@@ -341,6 +341,7 @@ class LauncherActivity : AppCompatActivity() {
             rebuildHome()
         }
         if (!prefs.hasLayout && apps.isNotEmpty()) onApps(apps) else refreshDrawer()
+        NotificationBadgeService.rebind(this)
         checkForUpdate(force = intent?.getBooleanExtra("check_update", false) == true)
         intent?.removeExtra("check_update")
     }
@@ -407,7 +408,7 @@ class LauncherActivity : AppCompatActivity() {
             val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
             b.header.updatePadding(top = sb.top + dp(6))
             statusBarTop = sb.top
-            b.homeColumn.updatePadding(top = if (prefs.showClock) 0 else sb.top + dp(10), bottom = sb.bottom)
+            b.homeColumn.updatePadding(top = sb.top + dp(10), bottom = sb.bottom)
             b.removeZone.updateLayoutParams<ViewGroup.MarginLayoutParams> { topMargin = sb.top + dp(10) }
             b.drawerContent.updatePadding(top = sb.top, bottom = max(sb.bottom, ime.bottom))
             b.folderOverlay.updatePadding(top = sb.top, bottom = max(sb.bottom, ime.bottom))
@@ -682,8 +683,8 @@ class LauncherActivity : AppCompatActivity() {
     private fun rebuildHome() {
         if (pageHeight == 0 || apps.isEmpty()) return
         if (normalizeLayout()) saveLayout()
-        b.header.isVisible = prefs.showClock
-        b.homeColumn.updatePadding(top = if (prefs.showClock) 0 else statusBarTop + dp(10))
+        b.header.isVisible = false
+        b.homeColumn.updatePadding(top = statusBarTop + dp(10))
         b.searchButton.isVisible = prefs.searchStyle == "button"
         b.searchBar.isVisible = prefs.searchStyle == "bar"
         updateDefaultBanner()
@@ -2281,35 +2282,106 @@ class LauncherActivity : AppCompatActivity() {
     private fun showHomeOptions() {
         dismissPopup()
         val current = b.workspace.currentItem
-        val items = mutableListOf("Add widget", "Apps in the dock", "Manage pages", "Change wallpaper", "Launcher settings", "All apps", "Add page", "Put all apps on Home")
-        if (!LayoutPreset.isEmpty(this)) items += "Apply my Honor layout"
-        if (pages.size > 1) items += "Remove this page"
-        if (!isDefaultLauncher()) items += "Set as default launcher"
-        MaterialAlertDialogBuilder(this)
-            .setTitle("Home screen")
-            .setItems(items.toTypedArray()) { _, i ->
-                when (items[i]) {
-                    "Add widget" -> pickWidget()
-                    "Apps in the dock" -> pickDockApps()
-                    "Manage pages" -> openOverview()
-                    "Change wallpaper" -> startActivity(Intent.createChooser(Intent(Intent.ACTION_SET_WALLPAPER), "Choose wallpaper"))
-                    "Launcher settings" -> startActivity(Intent(this, SettingsActivity::class.java))
-                    "All apps" -> openDrawer()
-                    "Add page" -> {
-                        pages.add(mutableListOf())
-                        saveLayout()
-                        workspaceAdapter?.notifyItemInserted(pages.size - 1)
-                        b.workspace.offscreenPageLimit = max(1, pages.size)
-                        b.workspace.setCurrentItem(pages.size - 1, true)
-                        updateIndicator(pages.size - 1)
-                    }
-                    "Put all apps on Home" -> fillHomeWithAllApps()
-                    "Apply my Honor layout" -> applyPreset()
-                    "Remove this page" -> removePage(current)
-                    "Set as default launcher" -> requestDefaultLauncher()
+        val dialog = com.google.android.material.bottomsheet.BottomSheetDialog(this)
+        val sheet = com.hassan.launcher.databinding.SheetHomeOptionsBinding.inflate(layoutInflater)
+        val text = drawerState.textColor
+        val sub = drawerState.subColor
+        val tileBg = if (drawerDark) 0x1FFFFFFF else 0x14000000
+        val accent = ContextCompat.getColor(this, R.color.accent)
+
+        fun tile(label: String, icon: Int, action: () -> Unit) {
+            val col = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                isClickable = true
+                isFocusable = true
+                setPadding(dp(4), dp(6), dp(4), dp(6))
+                setOnClickListener {
+                    dialog.dismiss()
+                    action()
                 }
             }
-            .show()
+            val circle = android.widget.FrameLayout(this).apply {
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(tileBg)
+                }
+            }
+            circle.addView(android.widget.ImageView(this).apply {
+                setImageResource(icon)
+                imageTintList = ColorStateList.valueOf(accent)
+            }, android.widget.FrameLayout.LayoutParams(dp(26), dp(26), Gravity.CENTER))
+            col.addView(circle, LinearLayout.LayoutParams(dp(58), dp(58)))
+            col.addView(TextView(this).apply {
+                this.text = label
+                textSize = 12f
+                setTextColor(text)
+                gravity = Gravity.CENTER
+                maxLines = 2
+                setPadding(0, dp(8), 0, 0)
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            sheet.tileRow.addView(col)
+        }
+
+        fun header(title: String) {
+            val h = com.hassan.launcher.databinding.ItemDrawerHeaderBinding.inflate(layoutInflater, sheet.rows, false)
+            h.headerText.text = title
+            h.headerText.setTextColor(sub)
+            sheet.rows.addView(h.root)
+        }
+
+        fun row(label: String, icon: Int, danger: Boolean = false, action: () -> Unit) {
+            val r = com.hassan.launcher.databinding.ItemDrawerActionBinding.inflate(layoutInflater, sheet.rows, false)
+            r.actionText.text = label
+            r.actionText.setTextColor(if (danger) 0xFFE53935.toInt() else text)
+            r.actionIcon.setImageResource(icon)
+            r.actionIcon.imageTintList = ColorStateList.valueOf(if (danger) 0xFFE53935.toInt() else sub)
+            r.root.setOnClickListener {
+                dialog.dismiss()
+                action()
+            }
+            sheet.rows.addView(r.root)
+        }
+
+        tile("Widgets", R.drawable.ic_apps) { pickWidget() }
+        tile("Wallpaper", R.drawable.ic_wallpaper) { startActivity(Intent.createChooser(Intent(Intent.ACTION_SET_WALLPAPER), "Choose wallpaper")) }
+        tile("Pages", R.drawable.ic_select) { openOverview() }
+        tile("Settings", R.drawable.ic_settings) { startActivity(Intent(this, SettingsActivity::class.java)) }
+
+        header("This page")
+        row("Add a page", R.drawable.ic_add) {
+            pages.add(mutableListOf())
+            saveLayout()
+            workspaceAdapter?.notifyItemInserted(pages.size - 1)
+            b.workspace.offscreenPageLimit = max(1, pages.size)
+            b.workspace.setCurrentItem(pages.size - 1, true)
+            updateIndicator(pages.size - 1)
+        }
+        if (pages.size > 1) row("Remove this page", R.drawable.ic_delete, danger = true) { removePage(current) }
+
+        header("Layout")
+        row("Apps in the dock", R.drawable.ic_dock) { pickDockApps() }
+        row("All apps", R.drawable.ic_search) { openDrawer() }
+        row("Put all apps on Home", R.drawable.ic_apps) { fillHomeWithAllApps() }
+        if (!LayoutPreset.isEmpty(this)) row("Apply my Honor layout", R.drawable.ic_home) { applyPreset() }
+        if (!isDefaultLauncher()) {
+            header("Launcher")
+            row("Set as default launcher", R.drawable.ic_check_circle) { requestDefaultLauncher() }
+        }
+
+        dialog.setContentView(sheet.root)
+        dialog.setOnShowListener {
+            val bg = if (drawerDark) 0xF7181818.toInt() else 0xFAFFFFFF.toInt()
+            val r = dp(28).toFloat()
+            dialog.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)?.background = GradientDrawable().apply {
+                setColor(bg)
+                cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
+            }
+        }
+        dialog.behavior.skipCollapsed = true
+        dialog.behavior.state = com.google.android.material.bottomsheet.BottomSheetBehavior.STATE_EXPANDED
+        dialog.show()
     }
 
     private fun discardWidgetsIn(pageList: List<List<HomeCell>>) {
