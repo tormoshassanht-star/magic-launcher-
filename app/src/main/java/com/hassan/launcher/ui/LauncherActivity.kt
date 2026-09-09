@@ -324,7 +324,23 @@ class LauncherActivity : AppCompatActivity() {
         super.onResume()
         updateDate()
         updateDefaultBanner()
-        if (!isDefaultLauncher() && !prefs.askedDefault) {
+        val crash = com.hassan.launcher.LauncherApp.crashFile(application)
+        if (crash.exists()) {
+            val report = crash.readText()
+            crash.delete()
+            MaterialAlertDialogBuilder(this)
+                .setTitle("Magic Launcher crashed last time")
+                .setMessage(report)
+                .setNegativeButton("Dismiss", null)
+                .setNeutralButton("Copy") { _, _ ->
+                    getSystemService(android.content.ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("crash", report))
+                    toast("Copied")
+                }
+                .setPositiveButton("Share") { _, _ ->
+                    startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, report), "Send crash report"))
+                }
+                .show()
+        } else if (!isDefaultLauncher() && !prefs.askedDefault) {
             prefs.askedDefault = true
             requestDefaultLauncher()
         } else if (!prefs.askedBadges) {
