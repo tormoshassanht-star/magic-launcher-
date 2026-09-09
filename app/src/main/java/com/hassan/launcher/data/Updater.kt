@@ -15,16 +15,21 @@ import java.net.URL
 class UpdateInfo(val version: String, val notes: String, val apkUrl: String)
 
 object Updater {
+    private const val REPO = "https://github.com/tormoshassanht-star/magic-launcher-"
     private const val LATEST = "https://api.github.com/repos/tormoshassanht-star/magic-launcher-/releases/latest"
 
     suspend fun check(): UpdateInfo? = withContext(Dispatchers.IO) {
-        try {
-            val conn = (URL(LATEST).openConnection() as HttpURLConnection).apply {
-                connectTimeout = 8000
-                readTimeout = 8000
-                setRequestProperty("Accept", "application/vnd.github+json")
-            }
-            if (conn.responseCode != 200) return@withContext null
+        val info = fromApi() ?: fromRedirect() ?: return@withContext null
+        if (!isNewer(info.version, BuildConfig.VERSION_NAME)) null else info
+    }
+
+    private fun fromApi(): UpdateInfo? = try {
+        val conn = (URL(LATEST).openConnection() as HttpURLConnection).apply {
+            connectTimeout = 8000
+            readTimeout = 8000
+            setRequestProperty("Accept", "application/vnd.github+json")
+        }
+        if (conn.responseCode != 200) null else {
             val json = JSONObject(conn.inputStream.bufferedReader().readText())
             val tag = json.getString("tag_name").removePrefix("v")
             val assets = json.getJSONArray("assets")
@@ -33,11 +38,25 @@ object Updater {
                 val a = assets.getJSONObject(i)
                 if (a.getString("name").endsWith(".apk")) url = a.getString("browser_download_url")
             }
-            if (url == null || !isNewer(tag, BuildConfig.VERSION_NAME)) return@withContext null
-            UpdateInfo(tag, json.optString("body", ""), url)
-        } catch (e: Exception) {
-            null
+            if (url == null) null else UpdateInfo(tag, json.optString("body", ""), url)
         }
+    } catch (e: Exception) {
+        null
+    }
+
+    // The unauthenticated API allows 60 requests an hour per IP, and carrier NAT shares one IP
+    // across many phones, so the plain redirect (never rate limited) is the fallback.
+    private fun fromRedirect(): UpdateInfo? = try {
+        val conn = (URL("$REPO/releases/latest").openConnection() as HttpURLConnection).apply {
+            connectTimeout = 8000
+            readTimeout = 8000
+            instanceFollowRedirects = false
+        }
+        val location = conn.getHeaderField("Location") ?: ""
+        val tag = location.substringAfterLast("/tag/", "").removePrefix("v")
+        if (tag.isBlank()) null else UpdateInfo(tag, "", "$REPO/releases/download/v$tag/MagicLauncher.apk")
+    } catch (e: Exception) {
+        null
     }
 
     fun isNewer(remote: String, local: String): Boolean {
