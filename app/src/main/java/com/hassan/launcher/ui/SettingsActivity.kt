@@ -54,6 +54,24 @@ class SettingsActivity : AppCompatActivity() {
                 }
             }
             click("notification_access") { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
+            click("notif_hidden") {
+                val ctx = requireContext()
+                val prefs = Prefs(ctx)
+                val pkgs = prefs.notifHidden.toList()
+                if (pkgs.isEmpty()) {
+                    Toast.makeText(ctx, "Nothing hidden. Long press a notification in the panel to hide its app.", Toast.LENGTH_LONG).show()
+                    return@click
+                }
+                val pm = ctx.packageManager
+                val names = pkgs.map { p -> runCatching { pm.getApplicationLabel(pm.getApplicationInfo(p, 0)).toString() }.getOrDefault(p) }.toTypedArray()
+                val checked = BooleanArray(pkgs.size) { true }
+                MaterialAlertDialogBuilder(ctx)
+                    .setTitle("Hidden from notification panel")
+                    .setMultiChoiceItems(names, checked) { _, i, on -> checked[i] = on }
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Save") { _, _ -> prefs.notifHidden = pkgs.filterIndexed { i, _ -> checked[i] }.toSet() }
+                    .show()
+            }
             click("battery") {
                 MaterialAlertDialogBuilder(requireContext())
                     .setTitle("Keep Magic Launcher running")

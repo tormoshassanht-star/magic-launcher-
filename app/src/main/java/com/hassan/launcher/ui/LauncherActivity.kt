@@ -430,7 +430,7 @@ class LauncherActivity : AppCompatActivity() {
             b.drawerContent.updatePadding(top = sb.top, bottom = max(sb.bottom, ime.bottom))
             b.folderOverlay.updatePadding(top = sb.top, bottom = max(sb.bottom, ime.bottom))
             b.searchContent.updatePadding(top = sb.top, bottom = max(sb.bottom, ime.bottom))
-            b.notifContent.updatePadding(top = sb.top, bottom = sb.bottom)
+            b.notifContent.updatePadding(top = sb.top, bottom = max(sb.bottom, ime.bottom))
             insets
         }
     }
@@ -2658,17 +2658,19 @@ class LauncherActivity : AppCompatActivity() {
 
     private var notifOpen = false
     private lateinit var notifAdapter: NotifAdapter
+    private lateinit var mediaWatcher: MediaWatcher
+    private var torchOn = false
+    private val torchCallback = object : android.hardware.camera2.CameraManager.TorchCallback() {
+        override fun onTorchModeChanged(cameraId: String, enabled: Boolean) {
+            torchOn = enabled
+            applyQuickState()
+        }
+    }
 
     private fun setupNotifPanel() {
-        notifAdapter = NotifAdapter(this, ::openNotifItem) { g ->
-            b.root.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-            closeNotifPanel()
-            startActivity(
-                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                    .putExtra(Settings.EXTRA_APP_PACKAGE, g.packageName)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-            )
-        }
+        mediaWatcher = MediaWatcher(this)
+        notifAdapter = NotifAdapter(this, ::openNotifItem, ::showNotifMenu)
+        notifAdapter.hidden = prefs.notifHidden
         b.notifList.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(this)
         b.notifList.adapter = notifAdapter
         b.notifList.itemAnimator?.changeDuration = 0
@@ -2676,12 +2678,13 @@ class LauncherActivity : AppCompatActivity() {
             override fun onMove(rv: RecyclerView, a: RecyclerView.ViewHolder, t: RecyclerView.ViewHolder) = false
 
             override fun getSwipeDirs(rv: RecyclerView, vh: RecyclerView.ViewHolder): Int {
-                val g = notifAdapter.groups.getOrNull(vh.bindingAdapterPosition) ?: return 0
+                val g = notifAdapter.groupAt(vh.bindingAdapterPosition) ?: return 0
                 return if (g.clearable) super.getSwipeDirs(rv, vh) else 0
             }
 
             override fun onSwiped(vh: RecyclerView.ViewHolder, direction: Int) {
-                val g = notifAdapter.groups.getOrNull(vh.bindingAdapterPosition) ?: return
+                val g = notifAdapter.groupAt(vh.bindingAdapterPosition) ?: return
+                b.root.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
                 NotificationBadgeService.dismiss(g.keys)
             }
 
@@ -2715,14 +2718,110 @@ class LauncherActivity : AppCompatActivity() {
         b.notifEmpty.setOnClickListener { closeNotifPanel() }
         b.notifClearAll.setOnClickListener {
             b.root.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
-            if (notifAdapter.groups.isEmpty()) closeNotifPanel() else NotificationBadgeService.dismissAll()
+            if (notifAdapter.count == 0) closeNotifPanel() else NotificationBadgeService.dismissAll()
+        }
+        b.quickFlash.setOnClickListener { toggleTorch() }
+        b.quickWifi.setOnClickListener { quickPanel(Settings.Panel.ACTION_WIFI, Settings.ACTION_WIFI_SETTINGS) }
+        b.quickBt.setOnClickListener { quickPanel(null, Settings.ACTION_BLUETOOTH_SETTINGS) }
+        b.quickVolume.setOnClickListener { quickPanel(Settings.Panel.ACTION_VOLUME, Settings.ACTION_SOUND_SETTINGS) }
+        b.quickLock.setOnClickListener {
+            closeNotifPanel()
+            lockScreen()
+        }
+        listOf(b.quickFlash, b.quickWifi, b.quickBt, b.quickVolume, b.quickLock).forEach { v ->
+            v.setOnLongClickListener {
+                b.root.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                closeNotifPanel()
+                startActivity(Intent(Settings.ACTION_SETTINGS))
+                true
+            }
+        }
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                mediaWatcher.info.collect { notifAdapter.setMedia(it); updateNotifEmpty() }
+            }
         }
     }
 
+    private fun quickPanel(panel: String?, fallback: String) {
+        closeNotifPanel()
+        val intent = if (panel != null && Build.VERSION.SDK_INT >= 29) Intent(panel) else Intent(fallback)
+        try {
+            startActivity(intent)
+        } catch (e: Exception) {
+            startActivity(Intent(fallback))
+        }
+    }
+
+    private fun toggleTorch() {
+        val cm = getSystemService(android.hardware.camera2.CameraManager::class.java)
+        val id = runCatching {
+            cm.cameraIdList.firstOrNull { cm.getCameraCharacteristics(it).get(android.hardware.camera2.CameraCharacteristics.FLASH_INFO_AVAILABLE) == true }
+        }.getOrNull()
+        if (id == null) {
+            toast("No flashlight on this device")
+            return
+        }
+        b.root.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+        runCatching { cm.setTorchMode(id, !torchOn) }.onFailure { toast("Flashlight is busy") }
+    }
+
+    private fun applyQuickState() {
+        val on = torchOn
+        b.quickFlash.setBackgroundResource(if (on) R.drawable.bg_notif_circle_light else R.drawable.bg_notif_pill)
+        b.quickFlash.imageTintList = ColorStateList.valueOf(if (on) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
+    }
+
+    private fun showNotifMenu(g: NotifGroup, anchor: View) {
+        b.root.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        val menu = PopupMenu(this, anchor, Gravity.END)
+        menu.menu.add(0, 1, 0, "Snooze 15 minutes")
+        menu.menu.add(0, 2, 1, "Snooze 1 hour")
+        menu.menu.add(0, 3, 2, "Snooze until tomorrow")
+        menu.menu.add(0, 4, 3, "Hide ${g.label} from this panel")
+        menu.menu.add(0, 5, 4, "Notification settings")
+        menu.setOnMenuItemClickListener {
+            when (it.itemId) {
+                1 -> NotificationBadgeService.snooze(g.allKeys, 15 * 60_000L)
+                2 -> NotificationBadgeService.snooze(g.allKeys, 60 * 60_000L)
+                3 -> NotificationBadgeService.snooze(g.allKeys, millisUntilTomorrow())
+                4 -> {
+                    prefs.notifHidden = prefs.notifHidden + g.packageName
+                    notifAdapter.hidden = prefs.notifHidden
+                    notifAdapter.submit(NotificationBadgeService.items.value)
+                    updateNotifEmpty()
+                    toast("${g.label} hidden. Undo in Settings > Gestures")
+                }
+                5 -> {
+                    closeNotifPanel()
+                    startActivity(
+                        Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                            .putExtra(Settings.EXTRA_APP_PACKAGE, g.packageName)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                }
+            }
+            true
+        }
+        menu.show()
+    }
+
+    private fun millisUntilTomorrow(): Long {
+        val cal = java.util.Calendar.getInstance().apply {
+            add(java.util.Calendar.DAY_OF_YEAR, 1)
+            set(java.util.Calendar.HOUR_OF_DAY, 8)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+        }
+        return (cal.timeInMillis - System.currentTimeMillis()).coerceAtLeast(60_000L)
+    }
+
     private fun updateNotifEmpty() {
-        val empty = notifAdapter.groups.isEmpty()
+        val empty = notifAdapter.isEmpty
         b.notifEmpty.isVisible = empty
         b.notifList.isVisible = !empty
+        val n = notifAdapter.count
+        b.notifCount.text = if (n == 0) "" else "$n"
     }
 
     private fun openNotifPanel() {
@@ -2740,22 +2839,35 @@ class LauncherActivity : AppCompatActivity() {
         if (openFolderId != null) closeFolder()
         notifOpen = true
         NotificationBadgeService.rebind(this)
+        mediaWatcher.start()
+        notifAdapter.hidden = prefs.notifHidden
         notifAdapter.submit(NotificationBadgeService.items.value)
         updateNotifEmpty()
+        runCatching { getSystemService(android.hardware.camera2.CameraManager::class.java).registerTorchCallback(torchCallback, null) }
+        applyQuickState()
         b.notifList.scrollToPosition(0)
         b.notifOverlay.alpha = 0f
         b.notifContent.translationY = -dp(40).toFloat()
         b.notifOverlay.isVisible = true
         b.notifOverlay.animate().alpha(1f).setDuration(180).start()
         b.notifContent.animate().translationY(0f).setDuration(220).setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+        if (Build.VERSION.SDK_INT >= 31) {
+            b.home.setRenderEffect(android.graphics.RenderEffect.createBlurEffect(dp(24).toFloat(), dp(24).toFloat(), android.graphics.Shader.TileMode.CLAMP))
+        }
         updateStatusBarIcons(false)
     }
 
     private fun closeNotifPanel() {
         if (!notifOpen) return
         notifOpen = false
+        hideKeyboard()
+        mediaWatcher.stop()
+        runCatching { getSystemService(android.hardware.camera2.CameraManager::class.java).unregisterTorchCallback(torchCallback) }
         b.notifContent.animate().translationY(-dp(40).toFloat()).setDuration(160).start()
-        b.notifOverlay.animate().alpha(0f).setDuration(160).withEndAction { b.notifOverlay.isVisible = false }.start()
+        b.notifOverlay.animate().alpha(0f).setDuration(160).withEndAction {
+            b.notifOverlay.isVisible = false
+            if (Build.VERSION.SDK_INT >= 31) b.home.setRenderEffect(null)
+        }.start()
         updateStatusBarIcons(b.drawer.isOpen)
     }
 

@@ -71,6 +71,10 @@ class Prefs(context: Context) {
         get() = sp.getStringSet("hidden", emptySet())!!.toSet()
         set(v) = sp.edit().putStringSet("hidden", v.toSet()).apply()
 
+    var notifHidden: Set<String>
+        get() = sp.getStringSet("notif_hidden", emptySet())!!.toSet()
+        set(v) = sp.edit().putStringSet("notif_hidden", v.toSet()).apply()
+
     fun configSignature() = listOf(
         columns, rows, drawerColumns, iconShape, iconSize, showHomeLabels,
         showClock, dockEnabled, newBadge, drawerTheme, drawerStyle, searchStyle, badges,

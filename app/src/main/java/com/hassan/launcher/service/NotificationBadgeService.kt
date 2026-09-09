@@ -1,9 +1,11 @@
 package com.hassan.launcher.service
 
 import android.app.Notification
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.graphics.drawable.Icon
+import android.os.Build
 import android.os.Bundle
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
@@ -20,6 +22,10 @@ class NotifItem(
     val largeIcon: Icon?,
     val contentIntent: PendingIntent?,
     val clearable: Boolean,
+    val conversation: Boolean,
+    val silent: Boolean,
+    val actions: List<Notification.Action>,
+    val color: Int,
 )
 
 class NotificationBadgeService : NotificationListenerService() {
@@ -50,11 +56,16 @@ class NotificationBadgeService : NotificationListenerService() {
             keys.forEach { runCatching { svc.cancelNotification(it) } }
         }
 
-        fun dismissAll() {
+        fun dismissAll(silentOnly: Boolean = false) {
             val svc = instance ?: return
-            val keys = _items.value.filter { it.clearable }.map { it.key }
+            val keys = _items.value.filter { it.clearable && (!silentOnly || it.silent) }.map { it.key }
             if (keys.isEmpty()) return
             runCatching { svc.cancelNotifications(keys.toTypedArray()) }
+        }
+
+        fun snooze(keys: List<String>, millis: Long) {
+            val svc = instance ?: return
+            keys.forEach { runCatching { svc.snoozeNotification(it, millis) } }
         }
     }
 
@@ -75,12 +86,16 @@ class NotificationBadgeService : NotificationListenerService() {
 
     override fun onNotificationRemoved(sbn: StatusBarNotification?) = recompute()
 
+    override fun onNotificationRankingUpdate(rankingMap: RankingMap?) = recompute()
+
     private fun recompute() {
         val active = try {
             activeNotifications
         } catch (e: Exception) {
             return
         } ?: return
+        val rankingMap = runCatching { currentRanking }.getOrNull()
+        val ranking = Ranking()
         val map = HashMap<String, Int>()
         val list = ArrayList<NotifItem>()
         for (sbn in active) {
@@ -92,6 +107,11 @@ class NotificationBadgeService : NotificationListenerService() {
             map[sbn.packageName] = (map[sbn.packageName] ?: 0) + add
             val (title, text) = extractText(n.extras)
             if (title.isBlank() && text.isBlank()) continue
+            val ranked = rankingMap?.getRanking(sbn.key, ranking) == true
+            val importance = if (ranked) ranking.importance else NotificationManager.IMPORTANCE_DEFAULT
+            val conversation = (ranked && Build.VERSION.SDK_INT >= 29 && ranking.isConversation) ||
+                n.category == Notification.CATEGORY_MESSAGE ||
+                n.extras.getBoolean(Notification.EXTRA_IS_GROUP_CONVERSATION, false)
             list += NotifItem(
                 key = sbn.key,
                 packageName = sbn.packageName,
@@ -101,6 +121,10 @@ class NotificationBadgeService : NotificationListenerService() {
                 largeIcon = n.getLargeIcon(),
                 contentIntent = n.contentIntent,
                 clearable = sbn.isClearable,
+                conversation = conversation,
+                silent = importance <= NotificationManager.IMPORTANCE_LOW,
+                actions = n.actions?.filter { it.actionIntent != null && !it.title.isNullOrBlank() } ?: emptyList(),
+                color = n.color,
             )
         }
         _counts.value = map
