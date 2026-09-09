@@ -124,17 +124,6 @@
             app:defaultValue="true"
             app:key="swipe_down_notifications"
             app:title="Swipe down for notifications" />
-        <ListPreference
-            app:defaultValue="launcher"
-            app:entries="@array/notif_panels"
-            app:entryValues="@array/notif_panel_values"
-            app:key="notif_panel"
-            app:title="Swipe down opens"
-            app:useSimpleSummaryProvider="true" />
-        <Preference
-            app:key="notif_hidden"
-            app:summary="Apps you muted from the launcher panel with long press"
-            app:title="Hidden from notification panel" />
         <Preference
             app:key="lock_permission"
             app:summary="Lets double tap lock the screen without an accessibility service"

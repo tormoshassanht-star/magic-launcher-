@@ -11,8 +11,8 @@ android {
         applicationId = "com.hassan.launcher"
         minSdk = 26
         targetSdk = 35
-        versionCode = 22
-        versionName = "1.11.1"
+        versionCode = 23
+        versionName = "1.12"
     }
 
     buildTypes {
