@@ -16,6 +16,8 @@
     <string-array name="search_style_values"><item>button</item><item>bar</item><item>none</item></string-array>
     <string-array name="search_targets"><item>Honor Search (if installed)</item><item>Magic Launcher search</item></string-array>
     <string-array name="search_target_values"><item>system</item><item>builtin</item></string-array>
+    <string-array name="notif_panels"><item>Magic Launcher panel (no accessibility needed)</item><item>System notification shade</item></string-array>
+    <string-array name="notif_panel_values"><item>launcher</item><item>system</item></string-array>
     <string-array name="themes"><item>Follow system</item><item>Light</item><item>Dark</item></string-array>
     <string-array name="theme_values"><item>auto</item><item>light</item><item>dark</item></string-array>
 </resources>

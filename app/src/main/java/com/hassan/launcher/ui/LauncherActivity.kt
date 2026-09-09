@@ -53,6 +53,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.GridLayoutManager
+import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.widget.ViewPager2
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
@@ -146,7 +147,7 @@ class LauncherActivity : AppCompatActivity() {
 
     private val gestureHost = object : HomeGestures.Host {
         override fun onPullStart(): Boolean {
-            if (currentDrag != null || overviewOpen || openFolderId != null || resizing != null || searchOpen) return false
+            if (currentDrag != null || overviewOpen || openFolderId != null || resizing != null || searchOpen || notifOpen) return false
             dismissPopup()
             pullActive = true
             b.drawer.beginDrag()
@@ -167,7 +168,11 @@ class LauncherActivity : AppCompatActivity() {
             if (currentDrag != null || !prefs.swipeDownNotifications) return
             b.workspace.isUserInputEnabled = false
             workspaceLocked = true
-            if (fromRight) openQuickSettings() else openNotifications()
+            when {
+                fromRight -> openQuickSettings()
+                prefs.launcherNotifPanel -> openNotifPanel()
+                else -> openNotifications()
+            }
         }
 
         override fun onGestureEnd() {
@@ -271,6 +276,7 @@ class LauncherActivity : AppCompatActivity() {
         setupFolderOverlay()
         setupResize()
         setupSearch()
+        setupNotifPanel()
         b.workspace.doOnLayout {
             pageHeight = it.height
             pageWidth = it.width
@@ -288,6 +294,11 @@ class LauncherActivity : AppCompatActivity() {
                     badgeCounts = it
                     applyBadges()
                 }
+            }
+        }
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                NotificationBadgeService.items.collect { notifAdapter.submit(it); updateNotifEmpty() }
             }
         }
         drawerState.badgeFor = { badgeForPackage(it.packageName) }
@@ -352,6 +363,7 @@ class LauncherActivity : AppCompatActivity() {
         setIntent(intent)
         dismissPopup()
         when {
+            notifOpen -> closeNotifPanel()
             searchOpen -> closeSearch()
             resizing != null -> finishResize()
             overviewOpen -> closeOverview()
@@ -376,6 +388,10 @@ class LauncherActivity : AppCompatActivity() {
 
     private fun handleBack() {
         dismissPopup()
+        if (notifOpen) {
+            closeNotifPanel()
+            return
+        }
         if (searchOpen) {
             closeSearch()
             return
@@ -414,6 +430,7 @@ class LauncherActivity : AppCompatActivity() {
             b.drawerContent.updatePadding(top = sb.top, bottom = max(sb.bottom, ime.bottom))
             b.folderOverlay.updatePadding(top = sb.top, bottom = max(sb.bottom, ime.bottom))
             b.searchContent.updatePadding(top = sb.top, bottom = max(sb.bottom, ime.bottom))
+            b.notifContent.updatePadding(top = sb.top, bottom = sb.bottom)
             insets
         }
     }
@@ -2635,6 +2652,128 @@ class LauncherActivity : AppCompatActivity() {
                 )
             }
             .show()
+    }
+
+    // ---------------------------------------------------------------- launcher notification panel
+
+    private var notifOpen = false
+    private lateinit var notifAdapter: NotifAdapter
+
+    private fun setupNotifPanel() {
+        notifAdapter = NotifAdapter(this, ::openNotifItem) { g ->
+            b.root.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            closeNotifPanel()
+            startActivity(
+                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, g.packageName)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }
+        b.notifList.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(this)
+        b.notifList.adapter = notifAdapter
+        b.notifList.itemAnimator?.changeDuration = 0
+        ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.LEFT or ItemTouchHelper.RIGHT) {
+            override fun onMove(rv: RecyclerView, a: RecyclerView.ViewHolder, t: RecyclerView.ViewHolder) = false
+
+            override fun getSwipeDirs(rv: RecyclerView, vh: RecyclerView.ViewHolder): Int {
+                val g = notifAdapter.groups.getOrNull(vh.bindingAdapterPosition) ?: return 0
+                return if (g.clearable) super.getSwipeDirs(rv, vh) else 0
+            }
+
+            override fun onSwiped(vh: RecyclerView.ViewHolder, direction: Int) {
+                val g = notifAdapter.groups.getOrNull(vh.bindingAdapterPosition) ?: return
+                NotificationBadgeService.dismiss(g.keys)
+            }
+
+            override fun onChildDraw(c: android.graphics.Canvas, rv: RecyclerView, vh: RecyclerView.ViewHolder, dX: Float, dY: Float, state: Int, active: Boolean) {
+                vh.itemView.alpha = 1f - (abs(dX) / vh.itemView.width).coerceIn(0f, 0.8f)
+                super.onChildDraw(c, rv, vh, dX, dY, state, active)
+            }
+        }).attachToRecyclerView(b.notifList)
+        b.notifList.addOnItemTouchListener(object : RecyclerView.SimpleOnItemTouchListener() {
+            var downY = 0f
+            override fun onInterceptTouchEvent(rv: RecyclerView, e: MotionEvent): Boolean {
+                when (e.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> downY = e.y
+                    MotionEvent.ACTION_MOVE -> if (downY - e.y > dp(72) && !rv.canScrollVertically(-1)) {
+                        closeNotifPanel()
+                        return true
+                    }
+                }
+                return false
+            }
+        })
+        var headerDownY = 0f
+        b.notifHeader.setOnTouchListener { _, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> headerDownY = e.y
+                MotionEvent.ACTION_MOVE -> if (headerDownY - e.y > dp(48)) closeNotifPanel()
+            }
+            true
+        }
+        b.notifOverlay.setOnClickListener { closeNotifPanel() }
+        b.notifEmpty.setOnClickListener { closeNotifPanel() }
+        b.notifClearAll.setOnClickListener {
+            b.root.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+            if (notifAdapter.groups.isEmpty()) closeNotifPanel() else NotificationBadgeService.dismissAll()
+        }
+    }
+
+    private fun updateNotifEmpty() {
+        val empty = notifAdapter.groups.isEmpty()
+        b.notifEmpty.isVisible = empty
+        b.notifList.isVisible = !empty
+    }
+
+    private fun openNotifPanel() {
+        if (notifOpen) return
+        if (!NotificationBadgeService.isEnabled(this)) {
+            MaterialAlertDialogBuilder(this)
+                .setTitle("Swipe down for notifications")
+                .setMessage("Magic Launcher's own notification panel needs notification access. Turn it on for Magic Launcher on the next screen. No accessibility service is needed.")
+                .setNegativeButton("Not now", null)
+                .setPositiveButton("Open settings") { _, _ -> startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
+                .show()
+            return
+        }
+        dismissPopup()
+        if (openFolderId != null) closeFolder()
+        notifOpen = true
+        NotificationBadgeService.rebind(this)
+        notifAdapter.submit(NotificationBadgeService.items.value)
+        updateNotifEmpty()
+        b.notifList.scrollToPosition(0)
+        b.notifOverlay.alpha = 0f
+        b.notifContent.translationY = -dp(40).toFloat()
+        b.notifOverlay.isVisible = true
+        b.notifOverlay.animate().alpha(1f).setDuration(180).start()
+        b.notifContent.animate().translationY(0f).setDuration(220).setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+        updateStatusBarIcons(false)
+    }
+
+    private fun closeNotifPanel() {
+        if (!notifOpen) return
+        notifOpen = false
+        b.notifContent.animate().translationY(-dp(40).toFloat()).setDuration(160).start()
+        b.notifOverlay.animate().alpha(0f).setDuration(160).withEndAction { b.notifOverlay.isVisible = false }.start()
+        updateStatusBarIcons(b.drawer.isOpen)
+    }
+
+    private fun openNotifItem(item: com.hassan.launcher.service.NotifItem) {
+        val pi = item.contentIntent
+        closeNotifPanel()
+        if (pi == null) {
+            packageManager.getLaunchIntentForPackage(item.packageName)?.let { startActivity(it) }
+            return
+        }
+        try {
+            val opts = ActivityOptions.makeBasic()
+            if (Build.VERSION.SDK_INT >= 34) opts.pendingIntentBackgroundActivityStartMode = ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+            pi.send(this, 0, null, null, null, null, opts.toBundle())
+            if (item.clearable && pi.isActivity) NotificationBadgeService.dismiss(listOf(item.key))
+        } catch (e: Exception) {
+            packageManager.getLaunchIntentForPackage(item.packageName)?.let { startActivity(it) }
+        }
     }
 
     private fun openNotifications() {

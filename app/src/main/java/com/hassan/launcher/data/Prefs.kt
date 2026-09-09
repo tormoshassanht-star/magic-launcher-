@@ -24,6 +24,7 @@ class Prefs(context: Context) {
     val newBadge get() = sp.getBoolean("new_badge", true)
     val doubleTapLock get() = sp.getBoolean("double_tap_lock", true)
     val swipeDownNotifications get() = sp.getBoolean("swipe_down_notifications", true)
+    val launcherNotifPanel get() = sp.getString("notif_panel", "launcher") == "launcher"
     val drawerTheme get() = sp.getString("drawer_theme", "auto")!!
     val drawerStyle get() = sp.getString("drawer_style", "paged")!!
     val searchStyle get() = sp.getString("search_style", "button")!!
